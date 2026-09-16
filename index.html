@@ -372,6 +372,41 @@
     .invoice-notes { margin-top: 1.5rem; font-size: 0.85rem; border-top: 1px dashed #ccc; padding-top: 0.75rem; }
     .btn-remove-item { background: #ff5a5f; color: #fff !important; border: none; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.75rem; width: auto; margin: 0; cursor: pointer; }
     #btn-invoice-add-row { width: auto; margin: 0 0 1rem 0; padding: 0.3rem 0.7rem; font-size: 0.8rem; background: #eee; color: #1a1a1a; border: 1px solid #ccc; }
+
+    /* BOB: indicador discreto + panel de comando. Se mantiene oculto/colapsado salvo
+       cuando el usuario lo abre o Bob tiene algo que comunicar — nunca una ventana de
+       chat permanente. */
+    #bob-indicator {
+      position: fixed; right: 16px; bottom: 84px; z-index: 150;
+      width: 44px; height: 44px; border-radius: 50%;
+      background: var(--bg-button-secondary); border: 1px solid var(--border-subtle);
+      color: var(--text-primary); font-family: var(--font-grotesk); font-weight: 700; font-size: 1rem;
+      display: flex; align-items: center; justify-content: center; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.35); transition: background-color 0.2s, transform 0.15s;
+    }
+    #bob-indicator:active { transform: scale(0.94); }
+    #bob-indicator[data-state="thinking"] { background: rgba(245, 185, 66, 0.25); border-color: var(--accent-recommend); color: var(--accent-recommend); }
+    #bob-indicator[data-state="executing"] { background: rgba(0, 217, 163, 0.2); border-color: var(--accent-profit); color: var(--accent-profit); }
+    #bob-indicator[data-state="error"] { background: rgba(255, 90, 95, 0.2); border-color: var(--accent-expense); color: var(--accent-expense); }
+
+    #bob-panel {
+      position: fixed; right: 16px; bottom: 138px; z-index: 150;
+      width: min(340px, calc(100vw - 32px)); max-height: 60vh;
+      background: var(--bg-card); border: 1px solid var(--border-subtle); border-radius: 12px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    #bob-panel-header { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border-subtle); }
+    #bob-panel-header strong { font-family: var(--font-grotesk); color: var(--text-primary); }
+    #bob-close { background: none; border: none; width: auto; margin: 0; padding: 0.2rem 0.4rem; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; }
+    #bob-log { flex: 1; overflow-y: auto; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.88rem; }
+    .bob-msg { max-width: 88%; padding: 0.5rem 0.7rem; border-radius: 8px; line-height: 1.4; }
+    .bob-msg-user { align-self: flex-end; background: var(--accent-profit); color: var(--on-accent); }
+    .bob-msg-bob { align-self: flex-start; background: var(--bg-input); color: var(--text-primary); }
+    .bob-msg-error { align-self: flex-start; background: rgba(255, 90, 95, 0.15); color: var(--accent-expense); }
+    #bob-form { display: flex; gap: 0.5rem; padding: 0.6rem; border-top: 1px solid var(--border-subtle); }
+    #bob-input { margin: 0; }
+    #bob-send { width: auto; margin: 0; padding: 0 0.9rem; }
   </style>
 </head>
 <body>
@@ -991,6 +1026,20 @@
     <button class="nav-item active nav-admin-only" data-target="sec-dashboard">Dashboard</button>
     <button class="nav-item nav-admin-only" id="nav-btn-employees" data-target="sec-employees">Empleados</button>
   </nav>
+
+  <!-- BOB: asistente de consulta y navegación (fase 1: texto, sin voz ni creación de registros) -->
+  <button id="bob-indicator" class="hidden" data-state="idle" title="Bob">B</button>
+  <div id="bob-panel" class="hidden">
+    <div id="bob-panel-header">
+      <strong>Bob</strong>
+      <button type="button" id="bob-close">✕</button>
+    </div>
+    <div id="bob-log"></div>
+    <form id="bob-form">
+      <input type="text" id="bob-input" placeholder="Pregúntale algo a Bob..." maxlength="300" autocomplete="off">
+      <button type="submit" id="bob-send" class="btn-primary">➤</button>
+    </form>
+  </div>
 
   <script type="module">
     // -------------------------------------------------------------
@@ -1613,6 +1662,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       document.getElementById('user-role-badge').textContent = currentUserRole === 'admin' ? 'Admin' : 'Empleado';
 
       document.getElementById('app-header').classList.remove('hidden');
+      document.getElementById('bob-indicator').classList.remove('hidden'); // Bob: visible para admin y empleado por igual
       modules.forEach(m => m.classList.add('hidden'));
 
       if (currentUserRole === 'employee') {
@@ -2836,6 +2886,251 @@ function renderInventoryTable(products) {
         calculateFinancialDashboard();
       }
     }
+
+    // -------------------------------------------------------------
+    // BOB: asistente de consulta y navegación (fase 1)
+    // -------------------------------------------------------------
+    // Solo lectura + navegación por texto. Nada de crear/editar/borrar registros ni voz
+    // todavía — eso queda para una fase futura, ya conversada con el usuario. Bob es una
+    // capa puramente aditiva: si el motor de intención no reconoce algo y la función remota
+    // (Gemini) falla o no está disponible, el resto de la app sigue funcionando exactamente
+    // igual — nunca es un punto único de falla.
+    //
+    // Cadena de seguridad: USUARIO → ROL → PERMISOS → BOB → HERRAMIENTAS → DATOS.
+    // Ninguna herramienta de Bob llama a Supabase "directo": todas reutilizan las mismas
+    // funciones/snapshots que ya usa el resto de la UI, y todas pasan por bobCanExecute()
+    // antes de ejecutarse — igual que setupRoleInterface() decide qué ve cada quien.
+
+    function bobNormalize(text) {
+      return (text || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+    }
+
+    const BOB_SECTION_LABEL = {
+      'sec-dashboard': 'el Dashboard', 'sec-inventory': 'Inventario', 'sec-sales': 'Ventas',
+      'sec-customers': 'Clientes', 'sec-reports': 'Facturas', 'sec-employees': 'Empleados',
+      'sec-settings': 'Configuración'
+    };
+    // sectionId -> null (todos), 'admin' (solo admin), o el nombre del flag en currentUserPermissions
+    const BOB_SECTION_PERMISSION = {
+      'sec-dashboard': 'ver_dashboard', 'sec-inventory': null, 'sec-sales': null,
+      'sec-customers': null, 'sec-reports': 'ver_reportes', 'sec-employees': 'admin', 'sec-settings': null
+    };
+
+    function bobSectionAllowed(sectionId) {
+      if (!(sectionId in BOB_SECTION_PERMISSION)) return false;
+      if (currentUserRole === 'admin') return true;
+      const rule = BOB_SECTION_PERMISSION[sectionId];
+      if (rule === null) return true;
+      if (rule === 'admin') return false;
+      return !!currentUserPermissions[rule];
+    }
+
+    function bobPeriodLabel(period) {
+      return period === 'today' ? 'Hoy' : period === 'week' ? 'Esta semana' : 'Este mes';
+    }
+
+    // Cada tool reutiliza exactamente la misma lógica/snapshots que ya usa el resto de la UI
+    // (los mismos que calculateFinancialDashboard, renderTopProducts, etc.) — nunca una
+    // consulta paralela a Supabase. requiresPermission: mismo flag que bobSectionAllowed usa
+    // para la sección relacionada, para que Bob nunca revele más de lo que la UI ya mostraría.
+    const BOB_TOOLS = {
+      navigateTo: {
+        run: ({ sectionId }) => {
+          if (!bobSectionAllowed(sectionId)) return { say: 'No tienes acceso a esa sección.' };
+          showModuleSection(sectionId);
+          bobClosePanel();
+          return { say: `Listo, abrí ${BOB_SECTION_LABEL[sectionId] || sectionId}.` };
+        }
+      },
+      getSalesSummary: {
+        run: ({ period }) => {
+          const p = ['today', 'week', 'month'].includes(period) ? period : 'today';
+          const ventas = filterInvoicesByPeriod(salesHistory.filter(s => s.payment_method !== 'Abono Crédito'), p);
+          const total = ventas.reduce((acc, s) => acc + parseFloat(s.total), 0);
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return { say: `${bobPeriodLabel(p)}: ${ventas.length} venta${ventas.length === 1 ? '' : 's'} por ${curr}${total.toFixed(2)}.` };
+        }
+      },
+      getLowStockProducts: {
+        run: () => {
+          const bajos = inventorySnapshot.filter(p => p.stock <= p.min_stock);
+          if (bajos.length === 0) return { say: 'No hay productos con poco stock.' };
+          const nombres = bajos.slice(0, 5).map(p => p.name).join(', ');
+          return { say: `Hay ${bajos.length} producto${bajos.length === 1 ? '' : 's'} con poco stock: ${nombres}${bajos.length > 5 ? '...' : ''}.` };
+        }
+      },
+      getDebtors: {
+        run: () => {
+          const pendientes = creditsSnapshot.filter(cr => cr.status !== 'pagado');
+          if (pendientes.length === 0) return { say: 'No hay clientes con deudas pendientes.' };
+          const total = pendientes.reduce((acc, cr) => acc + (parseFloat(cr.amount) - parseFloat(cr.amount_paid)), 0);
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return { say: `${pendientes.length} crédito${pendientes.length === 1 ? '' : 's'} pendiente${pendientes.length === 1 ? '' : 's'}, ${curr}${total.toFixed(2)} por cobrar en total.` };
+        }
+      },
+      getBusinessSummary: {
+        requiresPermission: 'ver_dashboard',
+        run: () => {
+          const ventas = filterInvoicesByPeriod(salesHistory.filter(s => s.payment_method !== 'Abono Crédito'), 'month');
+          const grossSales = ventas.reduce((acc, s) => acc + parseFloat(s.total), 0);
+          const netProfit = ventas.reduce((acc, s) => acc + parseFloat(s.profit), 0);
+          const bajos = inventorySnapshot.filter(p => p.stock <= p.min_stock).length;
+          const pendientes = creditsSnapshot.filter(cr => cr.status !== 'pagado').length;
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return {
+            say: `Este mes: ${curr}${grossSales.toFixed(2)} en ventas, ${curr}${netProfit.toFixed(2)} de ganancia neta. ${bajos} producto${bajos === 1 ? '' : 's'} con poco stock y ${pendientes} crédito${pendientes === 1 ? '' : 's'} pendiente${pendientes === 1 ? '' : 's'}.`,
+            data: { grossSales, netProfit, lowStockCount: bajos, pendingCreditsCount: pendientes }
+          };
+        }
+      },
+      getTopProducts: {
+        run: ({ period }) => {
+          const p = ['today', 'week', 'month'].includes(period) ? period : 'month';
+          const totals = {};
+          filterInvoicesByPeriod(invoicesSnapshot, p).forEach(inv => (inv.items || []).forEach(item => {
+            if (!item.id) return; // ignora ítems que no son productos reales (ej. abonos)
+            const key = item.name || 'Producto';
+            totals[key] = (totals[key] || 0) + (parseFloat(item.qty) || 0);
+          }));
+          const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, 5);
+          if (top.length === 0) return { say: 'No hay ventas facturadas en ese período.' };
+          return { say: 'Más vendidos: ' + top.map(([name, qty]) => `${name} (${qty})`).join(', ') + '.' };
+        }
+      },
+      search: {
+        run: ({ query }) => {
+          const q = bobNormalize(query);
+          if (!q) return { say: '¿Qué quieres buscar?' };
+          const productos = inventorySnapshot.filter(p => bobNormalize(p.name).includes(q)).slice(0, 5);
+          const clientes = customersSnapshot.filter(c => bobNormalize(c.name).includes(q)).slice(0, 5);
+          if (productos.length === 0 && clientes.length === 0) return { say: `No encontré nada con "${query}".` };
+          const partes = [];
+          if (productos.length) partes.push(`Productos: ${productos.map(p => p.name).join(', ')}`);
+          if (clientes.length) partes.push(`Clientes: ${clientes.map(c => c.name).join(', ')}`);
+          return { say: partes.join(' — ') };
+        }
+      }
+    };
+
+    // Único punto real de ejecución — usado tanto por el motor de intención local como por
+    // lo que responda la función remota. El modelo de IA solo puede devolver el NOMBRE de
+    // una herramienta de este catálogo cerrado; nunca código, nunca acceso directo a Supabase.
+    function bobCanExecute(toolName) {
+      const tool = BOB_TOOLS[toolName];
+      if (!tool) return { allowed: false, reason: 'Esa acción no existe.' };
+      if (tool.requiresPermission && currentUserRole !== 'admin' && !currentUserPermissions[tool.requiresPermission]) {
+        return { allowed: false, reason: 'No tienes permiso para ver esa información.' };
+      }
+      return { allowed: true };
+    }
+
+    function dispatchTool(toolName, args = {}) {
+      const check = bobCanExecute(toolName);
+      if (!check.allowed) return { say: check.reason, isError: true };
+      try {
+        return BOB_TOOLS[toolName].run(args) || { say: 'Listo.' };
+      } catch (e) {
+        console.error('Bob tool error:', toolName, e);
+        return { say: 'Algo falló al procesar eso. Intenta de nuevo.', isError: true };
+      }
+    }
+
+    // Motor de intención: coincidencias simples de texto, sin red y sin costo de IA, para los
+    // comandos más comunes. Si nada coincide, se recurre a la función remota (ver callBobProxy).
+    const BOB_INTENTS = [
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bventas?\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-sales' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\binventario\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-inventory' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bclientes?\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-customers' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(dashboard|panel)\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-dashboard' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(facturas?|reportes?)\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-reports' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bemplead/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-employees' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bconfiguracion\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-settings' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bhoy\b/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'today' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bsemana\b/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'week' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'month' }) },
+      { test: t => /\b(poco|bajo)\s+stock\b|\bstock\s+bajo\b/.test(t), run: () => dispatchTool('getLowStockProducts', {}) },
+      { test: t => /\b(quien(es)? me deben?|deudores|cuentas por cobrar|creditos? pendientes?)\b/.test(t), run: () => dispatchTool('getDebtors', {}) },
+      { test: t => /\b(mas vendidos?|top productos?|productos? mas vendidos?)\b/.test(t), run: () => dispatchTool('getTopProducts', { period: 'month' }) },
+      { test: t => /\b(como va|resumen|que esta pasando)\b.*\bnegocio\b/.test(t), run: () => dispatchTool('getBusinessSummary', {}) },
+      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => dispatchTool('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) }
+    ];
+
+    function runIntentEngine(rawText) {
+      const normalized = bobNormalize(rawText);
+      for (const intent of BOB_INTENTS) {
+        if (intent.test(normalized)) return intent.run(normalized, rawText);
+      }
+      return null;
+    }
+
+    // Llama a la función de Supabase que hace de puente seguro con Gemini — la API key nunca
+    // vive en el navegador. La función remota solo puede devolver el nombre de una herramienta
+    // del catálogo (o una respuesta/aclaración de texto), nunca código ni datos crudos.
+    let bobConversation = [];
+    async function callBobProxy(rawText) {
+      const { data, error } = await supabase.functions.invoke('bob-proxy', {
+        body: {
+          message: rawText,
+          conversation: bobConversation.slice(-6),
+          context: { currentModule: document.querySelector('.view-module:not(.hidden)')?.id || null }
+        }
+      });
+      if (error) return { say: 'No pude conectarme con Bob en este momento. Puedes seguir usando la app normalmente.', isError: true };
+      if (data?.type === 'tool_call') return dispatchTool(data.tool, data.args || {});
+      if (data?.type === 'clarify' || data?.type === 'final_answer') return { say: data.say };
+      return { say: 'No entendí bien eso. ¿Puedes reformularlo?', isError: true };
+    }
+
+    async function bobHandleMessage(rawText) {
+      const text = rawText.trim();
+      if (!text) return;
+      bobLog('user', text);
+      bobConversation.push({ role: 'user', content: text });
+      bobSetState('thinking');
+
+      const localResult = runIntentEngine(text);
+      const result = localResult || await callBobProxy(text);
+
+      bobSetState(result?.isError ? 'error' : 'executing');
+      bobLog(result?.isError ? 'error' : 'bob', result?.say || 'Listo.');
+      bobConversation.push({ role: 'assistant', content: result?.say || '' });
+      setTimeout(() => bobSetState('idle'), 900);
+    }
+
+    function bobSetState(state) {
+      document.getElementById('bob-indicator').dataset.state = state;
+    }
+
+    function bobLog(role, text) {
+      const log = document.getElementById('bob-log');
+      const div = document.createElement('div');
+      div.className = `bob-msg bob-msg-${role}`;
+      div.innerHTML = escapeHtml(text);
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function bobOpenPanel() {
+      document.getElementById('bob-panel').classList.remove('hidden');
+      document.getElementById('bob-input').focus();
+    }
+    function bobClosePanel() {
+      document.getElementById('bob-panel').classList.add('hidden');
+    }
+    function bobTogglePanel() {
+      document.getElementById('bob-panel').classList.contains('hidden') ? bobOpenPanel() : bobClosePanel();
+    }
+
+    document.getElementById('bob-indicator').onclick = bobTogglePanel;
+    document.getElementById('bob-close').onclick = bobClosePanel;
+    document.getElementById('bob-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('bob-input');
+      const text = input.value;
+      input.value = '';
+      bobHandleMessage(text);
+    });
+    overlayModalIds.push('bob-panel'); // cerrar el panel de Bob al navegar, igual que los demás overlays
 
     document.getElementById('btn-logout').onclick = () => supabase.auth.signOut();
   </script>
