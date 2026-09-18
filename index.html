@@ -388,6 +388,15 @@
     #bob-indicator[data-state="thinking"] { background: rgba(245, 185, 66, 0.25); border-color: var(--accent-recommend); color: var(--accent-recommend); }
     #bob-indicator[data-state="executing"] { background: rgba(0, 217, 163, 0.2); border-color: var(--accent-profit); color: var(--accent-profit); }
     #bob-indicator[data-state="error"] { background: rgba(255, 90, 95, 0.2); border-color: var(--accent-expense); color: var(--accent-expense); }
+    @keyframes bob-pulse {
+      0% { box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 0 rgba(0, 217, 163, 0.5); }
+      70% { box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 10px rgba(0, 217, 163, 0); }
+      100% { box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 0 rgba(0, 217, 163, 0); }
+    }
+    /* Fase C: voz. "listening" = Bob te está escuchando (micrófono activo);
+       "speaking" = Bob está leyendo su respuesta en voz alta. */
+    #bob-indicator[data-state="listening"] { background: rgba(0, 217, 163, 0.25); border-color: var(--accent-profit); color: var(--accent-profit); animation: bob-pulse 1.4s ease-out infinite; }
+    #bob-indicator[data-state="speaking"] { background: rgba(245, 185, 66, 0.2); border-color: var(--accent-recommend); color: var(--accent-recommend); animation: bob-pulse 1.4s ease-out infinite; }
 
     #bob-panel {
       position: fixed; right: 16px; bottom: 138px; z-index: 150;
@@ -407,6 +416,8 @@
     #bob-form { display: flex; gap: 0.5rem; padding: 0.6rem; border-top: 1px solid var(--border-subtle); }
     #bob-input { margin: 0; }
     #bob-send { width: auto; margin: 0; padding: 0 0.9rem; }
+    #bob-mic { width: auto; margin: 0; padding: 0 0.7rem; background: var(--bg-button-secondary); color: var(--text-primary); border: 1px solid var(--border-subtle); }
+    #bob-mic[data-active="true"] { background: rgba(0, 217, 163, 0.25); border-color: var(--accent-profit); color: var(--accent-profit); }
   </style>
 </head>
 <body>
@@ -1036,6 +1047,7 @@
     </div>
     <div id="bob-log"></div>
     <form id="bob-form">
+      <button type="button" id="bob-mic" class="hidden" data-active="false" title="Hablar con Bob">🎤</button>
       <input type="text" id="bob-input" placeholder="Pregúntale algo a Bob..." maxlength="300" autocomplete="off">
       <button type="submit" id="bob-send" class="btn-primary">➤</button>
     </form>
@@ -1663,6 +1675,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
       document.getElementById('app-header').classList.remove('hidden');
       document.getElementById('bob-indicator').classList.remove('hidden'); // Bob: visible para admin y empleado por igual
+      if (bobSpeechInputSupported()) document.getElementById('bob-mic').classList.remove('hidden'); // solo si el navegador soporta reconocimiento de voz
       modules.forEach(m => m.classList.add('hidden'));
 
       if (currentUserRole === 'employee') {
@@ -3330,7 +3343,7 @@ function renderInventoryTable(products) {
       return { say: 'No entendí bien eso. ¿Puedes reformularlo?', isError: true };
     }
 
-    async function bobHandleMessage(rawText) {
+    async function bobHandleMessage(rawText, opts = {}) {
       const text = rawText.trim();
       if (!text) return;
       bobLog('user', text);
@@ -3355,7 +3368,7 @@ function renderInventoryTable(products) {
             const localResult = await runIntentEngine(text);
             result = localResult || await callBobProxy(text);
           } else {
-            bobSetState('idle');
+            if (opts.fromVoice) bobSpeak('Acción cancelada.'); else bobSetState('idle');
             return;
           }
         }
@@ -3367,7 +3380,85 @@ function renderInventoryTable(products) {
       bobSetState(result?.isError ? 'error' : 'executing');
       bobLog(result?.isError ? 'error' : 'bob', result?.say || 'Listo.');
       bobConversation.push({ role: 'assistant', content: result?.say || '' });
-      setTimeout(() => bobSetState('idle'), 900);
+      // Si la pregunta llegó por voz, Bob responde también por voz (bobSpeak controla los
+      // estados listening/speaking/idle); si fue texto, solo vuelve a "idle" en silencio.
+      if (opts.fromVoice) bobSpeak(result?.say || 'Listo.'); else setTimeout(() => bobSetState('idle'), 900);
+    }
+
+    // Fase C: voz. Reconocimiento (STT) y síntesis (TTS) 100% del navegador (Web Speech API) —
+    // no se agrega ningún backend nuevo ni ninguna ruta paralela: el texto reconocido entra por
+    // el mismo bobHandleMessage() que ya usa el texto escrito, así que pasa por el mismo motor
+    // de intención / bob-proxy / confirmación de escritura de siempre. Si el navegador no
+    // soporta la API, el botón de micrófono simplemente no aparece (ver setupRoleInterface) —
+    // nunca es un punto único de falla para el resto de Bob.
+    const BobSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let bobRecognition = null;
+    let bobListening = false;
+
+    function bobSpeechInputSupported() { return !!BobSpeechRecognition; }
+    function bobSpeechOutputSupported() { return 'speechSynthesis' in window; }
+
+    function bobGetRecognition() {
+      if (bobRecognition || !bobSpeechInputSupported()) return bobRecognition;
+      bobRecognition = new BobSpeechRecognition();
+      bobRecognition.lang = 'es-ES';
+      bobRecognition.interimResults = false;
+      bobRecognition.maxAlternatives = 1;
+      bobRecognition.onresult = (e) => {
+        const transcript = e.results?.[0]?.[0]?.transcript || '';
+        if (transcript.trim()) bobHandleMessage(transcript, { fromVoice: true });
+      };
+      bobRecognition.onerror = (e) => {
+        bobListening = false;
+        document.getElementById('bob-mic').dataset.active = 'false';
+        const messages = {
+          'not-allowed': 'No pude acceder al micrófono. Revisa los permisos del navegador.',
+          'no-speech': 'No escuché nada. Intenta de nuevo.',
+          'network': 'Hubo un problema de red con el reconocimiento de voz.'
+        };
+        bobLog('error', messages[e.error] || 'No pude reconocer el audio. Intenta de nuevo.');
+        bobSetState('error');
+        setTimeout(() => bobSetState('idle'), 900);
+      };
+      bobRecognition.onend = () => {
+        bobListening = false;
+        document.getElementById('bob-mic').dataset.active = 'false';
+      };
+      return bobRecognition;
+    }
+
+    function bobStartListening() {
+      const recognition = bobGetRecognition();
+      if (!recognition || bobListening) return;
+      try {
+        if (bobSpeechOutputSupported()) window.speechSynthesis.cancel(); // no solaparse con una respuesta anterior
+        bobOpenPanel();
+        recognition.start();
+        bobListening = true;
+        document.getElementById('bob-mic').dataset.active = 'true';
+        bobSetState('listening');
+      } catch (e) {
+        console.error('Bob speech recognition:', e);
+      }
+    }
+    function bobStopListening() {
+      if (bobRecognition && bobListening) bobRecognition.stop();
+    }
+
+    function bobSpeak(text) {
+      if (!bobSpeechOutputSupported() || !text) { bobSetState('idle'); return; }
+      try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'es-ES';
+        utterance.onstart = () => bobSetState('speaking');
+        utterance.onend = () => bobSetState('idle');
+        utterance.onerror = () => bobSetState('idle');
+        window.speechSynthesis.speak(utterance);
+      } catch (e) {
+        console.error('Bob speech synthesis:', e);
+        bobSetState('idle');
+      }
     }
 
     function bobSetState(state) {
@@ -3396,6 +3487,7 @@ function renderInventoryTable(products) {
 
     document.getElementById('bob-indicator').onclick = bobTogglePanel;
     document.getElementById('bob-close').onclick = bobClosePanel;
+    document.getElementById('bob-mic').onclick = () => { bobListening ? bobStopListening() : bobStartListening(); };
     document.getElementById('bob-form').addEventListener('submit', (e) => {
       e.preventDefault();
       const input = document.getElementById('bob-input');
