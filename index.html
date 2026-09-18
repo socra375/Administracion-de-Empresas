@@ -2929,6 +2929,42 @@ function renderInventoryTable(products) {
       return period === 'today' ? 'Hoy' : period === 'week' ? 'Esta semana' : 'Este mes';
     }
 
+    // Resolución de nombre -> registro real, usada por las herramientas de escritura. Gemini y
+    // el motor de intención solo conocen nombres (nunca IDs internos), igual que ya hace el
+    // tool de solo lectura `search`. Si hay ambigüedad o no se encuentra nada, se devuelve un
+    // error explicable en vez de adivinar.
+    function bobFindProduct(query) {
+      const q = bobNormalize(query);
+      if (!q) return { error: '¿Qué producto?' };
+      const matches = inventorySnapshot.filter(p => bobNormalize(p.name).includes(q));
+      if (matches.length === 0) return { error: `No encontré ningún producto llamado "${query}".` };
+      if (matches.length > 1) {
+        const exact = matches.find(p => bobNormalize(p.name) === q);
+        if (exact) return { product: exact };
+        return { error: `Hay varios productos que coinciden con "${query}": ${matches.slice(0, 5).map(p => p.name).join(', ')}. Sé más específico.` };
+      }
+      return { product: matches[0] };
+    }
+    function bobFindCustomer(query) {
+      const q = bobNormalize(query);
+      if (!q) return { error: '¿Qué cliente?' };
+      const matches = customersSnapshot.filter(c => bobNormalize(c.name).includes(q));
+      if (matches.length === 0) return { error: `No encontré ningún cliente llamado "${query}".` };
+      if (matches.length > 1) {
+        const exact = matches.find(c => bobNormalize(c.name) === q);
+        if (exact) return { customer: exact };
+        return { error: `Hay varios clientes que coinciden con "${query}": ${matches.slice(0, 5).map(c => c.name).join(', ')}. Sé más específico.` };
+      }
+      return { customer: matches[0] };
+    }
+    function bobResolvePaymentMethod(pm) {
+      const n = bobNormalize(pm || 'efectivo');
+      if (n.startsWith('transfer')) return 'Transferencia';
+      if (n.startsWith('tarjet')) return 'Tarjeta';
+      if (n.startsWith('credit')) return 'Crédito';
+      return 'Efectivo';
+    }
+
     // Cada tool reutiliza exactamente la misma lógica/snapshots que ya usa el resto de la UI
     // (los mismos que calculateFinancialDashboard, renderTopProducts, etc.) — nunca una
     // consulta paralela a Supabase. requiresPermission: mismo flag que bobSectionAllowed usa
@@ -3009,6 +3045,188 @@ function renderInventoryTable(products) {
           if (clientes.length) partes.push(`Clientes: ${clientes.map(c => c.name).join(', ')}`);
           return { say: partes.join(' — ') };
         }
+      },
+
+      // --- Fase B: herramientas de escritura. Todas con requiresConfirmation: true — nunca se
+      // ejecutan directo, primero pasan por requestToolCall(), que le muestra al usuario qué
+      // va a pasar y espera un "sí" explícito antes de llamar a run(). Reutilizan exactamente
+      // las mismas operaciones (RPCs/inserts) que ya usan los formularios normales de la app.
+      addCustomer: {
+        requiresConfirmation: true,
+        describe: ({ name, phone }) => `Voy a agregar el cliente "${name}"${phone ? ` (tel. ${phone})` : ''}.`,
+        run: async ({ name, phone }) => {
+          if (!name || !name.trim()) return { say: 'Falta el nombre del cliente.', isError: true };
+          await supabase.from('customers').insert([{ business_id: currentBusinessId, name: name.trim(), phone: phone || '' }]);
+          await logActivity(`Creó el cliente "${name.trim()}" (vía Bob)`, { entityType: 'customer' });
+          const { data } = await supabase.from('customers').select('*').eq('business_id', currentBusinessId);
+          if (data) { customersSnapshot = data; populateSalesCustomerSelect(); }
+          return { say: `Listo, agregué a "${name.trim()}" como cliente.` };
+        }
+      },
+      addProduct: {
+        requiresConfirmation: true,
+        describe: ({ name, salePrice, stock }) => {
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return `Voy a agregar el producto "${name}" a ${curr}${parseFloat(salePrice || 0).toFixed(2)}, con ${parseInt(stock) || 0} unidades en stock.`;
+        },
+        run: async ({ name, salePrice, purchasePrice, stock, minStock, sku, category }) => {
+          if (!name || !name.trim()) return { say: 'Falta el nombre del producto.', isError: true };
+          if (!(parseFloat(salePrice) > 0)) return { say: 'Falta un precio de venta válido.', isError: true };
+          const payload = {
+            business_id: currentBusinessId, name: name.trim(), sku: sku || null, category: category || 'General',
+            purchase_price: parseFloat(purchasePrice) || 0, sale_price: parseFloat(salePrice),
+            stock: parseInt(stock) || 0, min_stock: parseInt(minStock) || 0
+          };
+          const { data: newProd, error } = await supabase.from('products').insert([payload]).select().single();
+          if (error) return { say: 'Error al agregar el producto: ' + error.message, isError: true };
+          await logInventoryMovement(newProd.id, payload.name, 'entrada', payload.stock, 0, payload.stock, 'Registro inicial de producto (vía Bob)');
+          await logActivity(`Creó el producto "${payload.name}" (vía Bob)`, { entityType: 'product' });
+          const { data: fresh } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+          if (fresh) { inventorySnapshot = fresh; populateSalesSelect(inventorySnapshot); renderInventoryTable(inventorySnapshot); }
+          return { say: `Listo, agregué "${payload.name}" al inventario.` };
+        }
+      },
+      updateProductPrice: {
+        requiresConfirmation: true,
+        describe: ({ productName, salePrice }) => {
+          const found = bobFindProduct(productName);
+          if (found.error) throw Object.assign(new Error(found.error), { isResolutionError: true });
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return `Voy a cambiar el precio de "${found.product.name}" de ${curr}${parseFloat(found.product.sale_price).toFixed(2)} a ${curr}${parseFloat(salePrice).toFixed(2)}.`;
+        },
+        run: async ({ productName, salePrice }) => {
+          const found = bobFindProduct(productName);
+          if (found.error) return { say: found.error, isError: true };
+          if (!(parseFloat(salePrice) > 0)) return { say: 'Precio inválido.', isError: true };
+          const oldPrice = found.product.sale_price;
+          await supabase.from('products').update({ sale_price: parseFloat(salePrice) }).eq('id', found.product.id);
+          await logActivity(`Editó el producto "${found.product.name}" (vía Bob)`, {
+            entityType: 'product', entityId: found.product.id,
+            oldValues: { 'Precio Venta': oldPrice }, newValues: { 'Precio Venta': parseFloat(salePrice) }
+          });
+          const { data: fresh } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+          if (fresh) { inventorySnapshot = fresh; populateSalesSelect(inventorySnapshot); renderInventoryTable(inventorySnapshot); }
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return { say: `Listo, "${found.product.name}" ahora cuesta ${curr}${parseFloat(salePrice).toFixed(2)}.` };
+        }
+      },
+      updateProductStock: {
+        requiresConfirmation: true,
+        describe: ({ productName, stock }) => {
+          const found = bobFindProduct(productName);
+          if (found.error) throw Object.assign(new Error(found.error), { isResolutionError: true });
+          return `Voy a ajustar el stock de "${found.product.name}" de ${found.product.stock} a ${parseInt(stock)}.`;
+        },
+        run: async ({ productName, stock }) => {
+          const found = bobFindProduct(productName);
+          if (found.error) return { say: found.error, isError: true };
+          const newStock = parseInt(stock);
+          if (isNaN(newStock) || newStock < 0) return { say: 'Cantidad de stock inválida.', isError: true };
+          const stockBefore = found.product.stock;
+          await supabase.from('products').update({ stock: newStock }).eq('id', found.product.id);
+          await logInventoryMovement(found.product.id, found.product.name, 'ajuste', newStock - stockBefore, stockBefore, newStock, 'Ajuste manual vía Bob');
+          await logActivity(`Editó el producto "${found.product.name}" (vía Bob)`, {
+            entityType: 'product', entityId: found.product.id,
+            oldValues: { Stock: stockBefore }, newValues: { Stock: newStock }
+          });
+          const { data: fresh } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+          if (fresh) { inventorySnapshot = fresh; populateSalesSelect(inventorySnapshot); renderInventoryTable(inventorySnapshot); }
+          return { say: `Listo, el stock de "${found.product.name}" ahora es ${newStock}.` };
+        }
+      },
+      registerSale: {
+        requiresConfirmation: true,
+        describe: ({ items, paymentMethod, customerName }) => {
+          const resolved = (items || []).map(it => {
+            const r = bobFindProduct(it.productName);
+            if (r.error) throw Object.assign(new Error(r.error), { isResolutionError: true });
+            return `${it.qty} x ${r.product.name}`;
+          });
+          const pm = bobResolvePaymentMethod(paymentMethod);
+          if (pm === 'Crédito') {
+            if (!customerName) throw Object.assign(new Error('Para una venta a crédito necesito el nombre del cliente.'), { isResolutionError: true });
+            const foundC = bobFindCustomer(customerName);
+            if (foundC.error) throw Object.assign(new Error(foundC.error), { isResolutionError: true });
+          }
+          const cola = pm === 'Crédito' ? ` a crédito de ${customerName}` : ` (${pm})`;
+          return `Voy a registrar una venta de ${resolved.join(', ')}${cola}.`;
+        },
+        run: async ({ items, paymentMethod, customerName, creditDueDate }) => {
+          if (!Array.isArray(items) || items.length === 0) return { say: 'No especificaste qué productos vender.', isError: true };
+          const cartItems = [];
+          for (const it of items) {
+            const found = bobFindProduct(it.productName);
+            if (found.error) return { say: found.error, isError: true };
+            const qty = parseInt(it.qty) || 0;
+            if (qty <= 0) return { say: `Cantidad inválida para "${found.product.name}".`, isError: true };
+            if (qty > found.product.stock) return { say: `Stock insuficiente de "${found.product.name}" (disponible: ${found.product.stock}).`, isError: true };
+            cartItems.push({
+              id: found.product.id, name: found.product.name,
+              cost: parseFloat(found.product.purchase_price), price: parseFloat(found.product.sale_price),
+              qty, subtotal: qty * parseFloat(found.product.sale_price)
+            });
+          }
+          const pm = bobResolvePaymentMethod(paymentMethod);
+          let customerId = null;
+          if (pm === 'Crédito') {
+            if (!customerName) return { say: 'Para una venta a crédito necesito el nombre del cliente.', isError: true };
+            const foundC = bobFindCustomer(customerName);
+            if (foundC.error) return { say: foundC.error, isError: true };
+            customerId = foundC.customer.id;
+          }
+          const { data: saleData, error: saleErr } = await supabase.rpc('process_sale', {
+            p_business_id: currentBusinessId, p_items: cartItems, p_payment_method: pm,
+            p_customer_id: customerId, p_credit_due_date: pm === 'Crédito' ? (creditDueDate || null) : null
+          });
+          if (saleErr) return { say: 'Error al registrar la venta: ' + saleErr.message, isError: true };
+
+          const { data: fresh } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+          if (fresh) { inventorySnapshot = fresh; populateSalesSelect(inventorySnapshot); }
+          salesHistory.unshift(saleData);
+          await loadCredits();
+
+          let invNote = '';
+          if (pm !== 'Crédito') {
+            const { error: invErr } = await createInvoiceForSale(saleData, customerId);
+            if (!invErr) await loadInvoicesList();
+            else invNote = ' (hubo un problema generando la factura)';
+          }
+          const curr = currentBusinessData?.currency_symbol || '$';
+          await logActivity(`Registró una venta por ${curr}${parseFloat(saleData.total).toFixed(2)} (${pm}) (vía Bob)`);
+          return { say: `Venta registrada por ${curr}${parseFloat(saleData.total).toFixed(2)}${invNote}.` };
+        }
+      },
+      registerCreditPayment: {
+        requiresConfirmation: true,
+        describe: ({ customerName, amount }) => {
+          const foundC = bobFindCustomer(customerName);
+          if (foundC.error) throw Object.assign(new Error(foundC.error), { isResolutionError: true });
+          const pendientes = creditsSnapshot.filter(cr => cr.customer_id === foundC.customer.id && cr.status !== 'pagado');
+          if (pendientes.length === 0) throw Object.assign(new Error(`"${foundC.customer.name}" no tiene créditos pendientes.`), { isResolutionError: true });
+          if (pendientes.length > 1) throw Object.assign(new Error(`"${foundC.customer.name}" tiene varios créditos pendientes — ve a Clientes para elegir cuál abonar.`), { isResolutionError: true });
+          const curr = currentBusinessData?.currency_symbol || '$';
+          return `Voy a registrar un abono de ${curr}${parseFloat(amount || 0).toFixed(2)} para "${foundC.customer.name}".`;
+        },
+        run: async ({ customerName, amount }) => {
+          const foundC = bobFindCustomer(customerName);
+          if (foundC.error) return { say: foundC.error, isError: true };
+          const pendientes = creditsSnapshot.filter(cr => cr.customer_id === foundC.customer.id && cr.status !== 'pagado');
+          if (pendientes.length === 0) return { say: `"${foundC.customer.name}" no tiene créditos pendientes.`, isError: true };
+          if (pendientes.length > 1) return { say: `"${foundC.customer.name}" tiene varios créditos pendientes — ve a Clientes para elegir cuál abonar.`, isError: true };
+          const amt = parseFloat(amount);
+          if (!(amt > 0)) return { say: 'Monto inválido.', isError: true };
+          const { data: saleData, error: payErr } = await supabase.rpc('process_credit_payment', {
+            p_business_id: currentBusinessId, p_credit_id: pendientes[0].id, p_amount: amt
+          });
+          if (payErr) return { say: 'Error al registrar el abono: ' + payErr.message, isError: true };
+          salesHistory.unshift(saleData);
+          await loadCredits();
+          const { error: invErr } = await createInvoiceForSale(saleData, foundC.customer.id);
+          if (!invErr) await loadInvoicesList();
+          const curr = currentBusinessData?.currency_symbol || '$';
+          await logActivity(`Registró un abono de ${curr}${amt.toFixed(2)} para "${foundC.customer.name}" (vía Bob)`);
+          return { say: `Abono de ${curr}${amt.toFixed(2)} registrado para "${foundC.customer.name}".` };
+        }
       }
     };
 
@@ -3024,35 +3242,63 @@ function renderInventoryTable(products) {
       return { allowed: true };
     }
 
-    function dispatchTool(toolName, args = {}) {
+    async function dispatchTool(toolName, args = {}) {
       const check = bobCanExecute(toolName);
       if (!check.allowed) return { say: check.reason, isError: true };
       try {
-        return BOB_TOOLS[toolName].run(args) || { say: 'Listo.' };
+        const result = await BOB_TOOLS[toolName].run(args);
+        return result || { say: 'Listo.' };
       } catch (e) {
         console.error('Bob tool error:', toolName, e);
         return { say: 'Algo falló al procesar eso. Intenta de nuevo.', isError: true };
       }
     }
 
+    // Punto de entrada usado tanto por el motor de intención como por la función remota. Si la
+    // herramienta es de escritura (requiresConfirmation), NUNCA se ejecuta aquí: solo se arma un
+    // resumen legible y se guarda como bobPendingAction, esperando un "sí" explícito del usuario
+    // en el siguiente mensaje (ver bobHandleMessage). Las herramientas de solo lectura siguen
+    // ejecutándose de inmediato, igual que en la Fase A.
+    async function requestToolCall(toolName, args = {}) {
+      const tool = BOB_TOOLS[toolName];
+      if (!tool) return { say: 'Esa acción no existe.', isError: true };
+      if (tool.requiresConfirmation) {
+        const check = bobCanExecute(toolName);
+        if (!check.allowed) return { say: check.reason, isError: true };
+        let desc;
+        try {
+          desc = tool.describe(args);
+        } catch (e) {
+          // describe() lanza un error marcado isResolutionError cuando no pudo resolver un
+          // nombre (producto/cliente inexistente o ambiguo) — en ese caso se devuelve el error
+          // directo, nunca se invita a "confirmar" algo que de todos modos va a fallar.
+          if (e && e.isResolutionError) return { say: e.message, isError: true };
+          desc = '¿Confirmas esta acción?';
+        }
+        bobPendingAction = { toolName, args };
+        return { say: `${desc} Responde "sí" para confirmar o "no" para cancelar.` };
+      }
+      return await dispatchTool(toolName, args);
+    }
+
     // Motor de intención: coincidencias simples de texto, sin red y sin costo de IA, para los
     // comandos más comunes. Si nada coincide, se recurre a la función remota (ver callBobProxy).
     const BOB_INTENTS = [
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bventas?\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-sales' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\binventario\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-inventory' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bclientes?\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-customers' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(dashboard|panel)\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-dashboard' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(facturas?|reportes?)\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-reports' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bemplead/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-employees' }) },
-      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bconfiguracion\b/.test(t), run: () => dispatchTool('navigateTo', { sectionId: 'sec-settings' }) },
-      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bhoy\b/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'today' }) },
-      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bsemana\b/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'week' }) },
-      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t), run: () => dispatchTool('getSalesSummary', { period: 'month' }) },
-      { test: t => /\b(poco|bajo)\s+stock\b|\bstock\s+bajo\b/.test(t), run: () => dispatchTool('getLowStockProducts', {}) },
-      { test: t => /\b(quien(es)? me deben?|deudores|cuentas por cobrar|creditos? pendientes?)\b/.test(t), run: () => dispatchTool('getDebtors', {}) },
-      { test: t => /\b(mas vendidos?|top productos?|productos? mas vendidos?)\b/.test(t), run: () => dispatchTool('getTopProducts', { period: 'month' }) },
-      { test: t => /\b(como va|resumen|que esta pasando)\b.*\bnegocio\b/.test(t), run: () => dispatchTool('getBusinessSummary', {}) },
-      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => dispatchTool('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) }
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bventas?\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-sales' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\binventario\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-inventory' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bclientes?\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-customers' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(dashboard|panel)\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-dashboard' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\b(facturas?|reportes?)\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-reports' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bemplead/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-employees' }) },
+      { test: t => /\b(abr[ei]|ir a|ve a|llevame a|muestrame)\b.*\bconfiguracion\b/.test(t), run: () => requestToolCall('navigateTo', { sectionId: 'sec-settings' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bhoy\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'today' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t) && /\bsemana\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'week' }) },
+      { test: t => /\b(cuanto|cuantas?)\b.*\bvent/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'month' }) },
+      { test: t => /\b(poco|bajo)\s+stock\b|\bstock\s+bajo\b/.test(t), run: () => requestToolCall('getLowStockProducts', {}) },
+      { test: t => /\b(quien(es)? me deben?|deudores|cuentas por cobrar|creditos? pendientes?)\b/.test(t), run: () => requestToolCall('getDebtors', {}) },
+      { test: t => /\b(mas vendidos?|top productos?|productos? mas vendidos?)\b/.test(t), run: () => requestToolCall('getTopProducts', { period: 'month' }) },
+      { test: t => /\b(como va|resumen|que esta pasando)\b.*\bnegocio\b/.test(t), run: () => requestToolCall('getBusinessSummary', {}) },
+      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => requestToolCall('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) }
     ];
 
     function runIntentEngine(rawText) {
@@ -3067,6 +3313,9 @@ function renderInventoryTable(products) {
     // vive en el navegador. La función remota solo puede devolver el nombre de una herramienta
     // del catálogo (o una respuesta/aclaración de texto), nunca código ni datos crudos.
     let bobConversation = [];
+    // Acción de escritura esperando confirmación explícita ({ toolName, args }) — ver
+    // requestToolCall() y bobHandleMessage(). null cuando no hay nada pendiente.
+    let bobPendingAction = null;
     async function callBobProxy(rawText) {
       const { data, error } = await supabase.functions.invoke('bob-proxy', {
         body: {
@@ -3076,7 +3325,7 @@ function renderInventoryTable(products) {
         }
       });
       if (error) return { say: 'No pude conectarme con Bob en este momento. Puedes seguir usando la app normalmente.', isError: true };
-      if (data?.type === 'tool_call') return dispatchTool(data.tool, data.args || {});
+      if (data?.type === 'tool_call') return await requestToolCall(data.tool, data.args || {});
       if (data?.type === 'clarify' || data?.type === 'final_answer') return { say: data.say };
       return { say: 'No entendí bien eso. ¿Puedes reformularlo?', isError: true };
     }
@@ -3088,8 +3337,32 @@ function renderInventoryTable(products) {
       bobConversation.push({ role: 'user', content: text });
       bobSetState('thinking');
 
-      const localResult = runIntentEngine(text);
-      const result = localResult || await callBobProxy(text);
+      let result;
+      if (bobPendingAction) {
+        // Con una acción pendiente, el próximo mensaje SOLO se interpreta como confirmación o
+        // cancelación — nunca se ejecuta la acción por accidente por una respuesta ambigua.
+        const pending = bobPendingAction;
+        bobPendingAction = null;
+        const norm = bobNormalize(text);
+        if (/^(si|sí|s|confirmo|dale|ok|correcto|claro|afirmativo)\b/.test(norm)) {
+          result = await dispatchTool(pending.toolName, pending.args);
+        } else {
+          bobLog('bob', 'Acción cancelada.');
+          bobConversation.push({ role: 'assistant', content: 'Acción cancelada.' });
+          if (!/^(no|cancela|cancelar|n)\b/.test(norm)) {
+            // No era un simple "no": tratamos este mensaje como uno nuevo, para no dejar al
+            // usuario trabado si cambió de tema en vez de responder la confirmación.
+            const localResult = await runIntentEngine(text);
+            result = localResult || await callBobProxy(text);
+          } else {
+            bobSetState('idle');
+            return;
+          }
+        }
+      } else {
+        const localResult = await runIntentEngine(text);
+        result = localResult || await callBobProxy(text);
+      }
 
       bobSetState(result?.isError ? 'error' : 'executing');
       bobLog(result?.isError ? 'error' : 'bob', result?.say || 'Listo.');
