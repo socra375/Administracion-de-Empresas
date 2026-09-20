@@ -394,9 +394,16 @@
       100% { box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 0 0 0 rgba(0, 217, 163, 0); }
     }
     /* Fase C: voz. "listening" = Bob te está escuchando (micrófono activo);
-       "speaking" = Bob está leyendo su respuesta en voz alta. */
+       "speaking" = Bob está leyendo su respuesta en voz alta;
+       "passive" = el modo pasivo está encendido y el micrófono sí está abierto. Sin esta
+       señal visible no hay forma de distinguir "Bob no me oye" de "Bob no está escuchando". */
     #bob-indicator[data-state="listening"] { background: rgba(0, 217, 163, 0.25); border-color: var(--accent-profit); color: var(--accent-profit); animation: bob-pulse 1.4s ease-out infinite; }
     #bob-indicator[data-state="speaking"] { background: rgba(245, 185, 66, 0.2); border-color: var(--accent-recommend); color: var(--accent-recommend); animation: bob-pulse 1.4s ease-out infinite; }
+    #bob-indicator[data-state="passive"] { border-color: var(--accent-profit); color: var(--accent-profit); }
+    #bob-indicator[data-state="passive"]::after {
+      content: ''; position: absolute; top: 2px; right: 2px;
+      width: 9px; height: 9px; border-radius: 50%; background: var(--accent-profit);
+    }
 
     #bob-panel {
       position: fixed; right: 16px; bottom: 138px; z-index: 150;
@@ -897,6 +904,14 @@
         <p class="cfg-hint">Bob queda escuchando en segundo plano: solo di <strong>"Bob"</strong> seguido de lo que necesites, sin abrir nada. Requiere permiso de micrófono y funciona en Chrome y Edge.</p>
         <p id="assistant-speech-unsupported" class="cfg-hint hidden" style="color: var(--accent-expense);">Este navegador no soporta reconocimiento de voz, así que el modo pasivo no está disponible aquí. Bob sigue funcionando por texto.</p>
 
+        <button type="button" id="btn-test-mic" style="width: auto; margin-top: 0.6rem; padding: 0.5rem 0.9rem; font-size: 0.85rem; background-color: var(--bg-button-secondary); border: 1px solid var(--border-subtle);">🎤 Probar micrófono</button>
+        <p id="assistant-mic-status" class="cfg-hint"></p>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.2rem;">
+          <input type="checkbox" id="cfg-assistant-speak" style="width: auto; margin: 0;"> Bob responde en voz alta
+        </label>
+        <p class="cfg-hint">Bob lee sus respuestas, le hayas escrito o le hayas hablado. Apágalo si prefieres leerlo en silencio.</p>
+
         <label style="margin-top: 1.2rem;">Ventana de escucha</label>
         <p class="cfg-hint">Bob escucha por bloques de este tiempo, con una pausa breve entre uno y otro para gastar menos batería y datos. Bloques cortos ahorran más; bloques largos cortan menos las frases.</p>
         <select id="cfg-assistant-window">
@@ -1135,6 +1150,9 @@
       enabled: 'pyme_assist_enabled',
       window: 'pyme_assist_window',
       briefing: 'pyme_assist_briefing',
+      // Voz de respuesta: independiente del modo pasivo. Bob lee lo que contesta aunque le
+      // hayas escrito y aunque no tengas el micrófono encendido.
+      speak: 'pyme_assist_speak',
       voice: 'pyme_assist_voice',
       lastBriefing: 'pyme_assist_last_briefing'
     };
@@ -3448,7 +3466,7 @@ function renderInventoryTable(products) {
             const localResult = await runIntentEngine(text);
             result = localResult || await callBobProxy(text);
           } else {
-            if (opts.fromVoice) bobSpeak('Acción cancelada.'); else bobSetState('idle');
+            if (opts.fromVoice || bobVoiceRepliesOn()) bobSpeak('Acción cancelada.'); else bobSetState('idle');
             return;
           }
         }
@@ -3460,9 +3478,10 @@ function renderInventoryTable(products) {
       bobSetState(result?.isError ? 'error' : 'executing');
       bobLog(result?.isError ? 'error' : 'bob', result?.say || 'Listo.');
       bobConversation.push({ role: 'assistant', content: result?.say || '' });
-      // Si la pregunta llegó por voz, Bob responde también por voz (bobSpeak controla los
-      // estados listening/speaking/idle); si fue texto, solo vuelve a "idle" en silencio.
-      if (opts.fromVoice) bobSpeak(result?.say || 'Listo.'); else setTimeout(() => bobSetState('idle'), 900);
+      // Bob lee su respuesta si la pregunta llegó por voz o si la voz de respuesta está
+      // encendida (lo está por defecto); bobSpeak controla los estados speaking/idle.
+      if (opts.fromVoice || bobVoiceRepliesOn()) bobSpeak(result?.say || 'Listo.');
+      else setTimeout(() => bobSetState('idle'), 900);
       // Red de seguridad: el modo pasivo se detiene al captar una orden, y normalmente lo
       // reanuda bobSpeak al terminar de hablar. Si por lo que sea no hubo voz (sin soporte de
       // síntesis, error al reproducir), este reintento evita que Bob se quede sordo.
@@ -3478,26 +3497,52 @@ function renderInventoryTable(products) {
     const BobSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     let bobRecognition = null;
     let bobListening = false;
+    let bobMicGranted = false;
+    // El reconocedor acierta mucho más con el acento de quien habla: si el dispositivo está en
+    // español (es-DO, es-MX, es-AR...), se usa esa variante en vez de forzar el español de España.
+    const BOB_LANG = /^es/i.test(navigator.language || '') ? navigator.language : 'es-ES';
 
     function bobSpeechInputSupported() { return !!BobSpeechRecognition; }
     function bobSpeechOutputSupported() { return 'speechSynthesis' in window; }
+    function bobVoiceRepliesOn() { return bobPref(ASSIST_KEYS.speak, '1') === '1'; }
+
+    // Pide el micrófono explícitamente ANTES de arrancar el reconocedor. Sin esto, el permiso
+    // solo se pedía de forma implícita al llamar a recognition.start(), y cuando el navegador lo
+    // negaba el error llegaba tarde y sin explicación: Bob simplemente "no escuchaba".
+    async function bobEnsureMicPermission() {
+      if (bobMicGranted) return true;
+      if (!navigator.mediaDevices?.getUserMedia) return true; // no se puede consultar: que lo intente el reconocedor
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop()); // solo queríamos el permiso, no grabar
+        bobMicGranted = true;
+        return true;
+      } catch (e) {
+        bobMicGranted = false;
+        return false;
+      }
+    }
+
+    const BOB_MIC_DENIED_MSG = 'No pude acceder al micrófono. Toca el candado 🔒 junto a la dirección de la página → Micrófono → Permitir, y vuelve a intentarlo.';
 
     function bobGetRecognition() {
       if (bobRecognition || !bobSpeechInputSupported()) return bobRecognition;
       bobRecognition = new BobSpeechRecognition();
-      bobRecognition.lang = 'es-ES';
+      bobRecognition.lang = BOB_LANG;
       bobRecognition.interimResults = false;
       bobRecognition.maxAlternatives = 1;
       bobRecognition.onresult = (e) => {
-        const transcript = e.results?.[0]?.[0]?.transcript || '';
+        const transcript = e.results?.[e.results.length - 1]?.[0]?.transcript || '';
         if (transcript.trim()) bobHandleMessage(transcript, { fromVoice: true });
       };
       bobRecognition.onerror = (e) => {
         bobListening = false;
         document.getElementById('bob-mic').dataset.active = 'false';
+        if (e.error === 'aborted') return; // lo detuvimos nosotros, no hay nada que avisar
         const messages = {
-          'not-allowed': 'No pude acceder al micrófono. Revisa los permisos del navegador.',
-          'no-speech': 'No escuché nada. Intenta de nuevo.',
+          'not-allowed': BOB_MIC_DENIED_MSG,
+          'service-not-allowed': BOB_MIC_DENIED_MSG,
+          'no-speech': 'No escuché nada. Toca el micrófono y habla de nuevo.',
           'network': 'Hubo un problema de red con el reconocimiento de voz.'
         };
         bobLog('error', messages[e.error] || 'No pude reconocer el audio. Intenta de nuevo.');
@@ -3507,22 +3552,40 @@ function renderInventoryTable(products) {
       bobRecognition.onend = () => {
         bobListening = false;
         document.getElementById('bob-mic').dataset.active = 'false';
+        // El micrófono del botón y el del modo pasivo son el mismo aparato: al soltarlo, el
+        // modo pasivo (si estaba encendido) vuelve a tomarlo.
+        if (bobPassiveOn) bobSuspendPassive(false);
       };
       return bobRecognition;
     }
 
-    function bobStartListening() {
+    async function bobStartListening() {
+      if (bobListening) return;
+      bobOpenPanel();
+      if (!bobSpeechInputSupported()) {
+        bobLog('error', 'Este navegador no reconoce la voz. Prueba con Chrome o Edge; mientras tanto puedes escribirle a Bob aquí.');
+        return;
+      }
+      if (!(await bobEnsureMicPermission())) {
+        bobLog('error', BOB_MIC_DENIED_MSG);
+        bobSetState('error');
+        setTimeout(() => bobSetState('idle'), 1200);
+        return;
+      }
+      bobStopSpeaking(); // no solaparse con una respuesta anterior
+      // El modo pasivo tiene el reconocedor abierto; si no se suelta primero, start() lanza
+      // InvalidStateError y el botón del micrófono parecía no hacer absolutamente nada.
+      if (bobPassiveOn) bobSuspendPassive(true);
       const recognition = bobGetRecognition();
-      if (!recognition || bobListening) return;
       try {
-        bobStopSpeaking(); // no solaparse con una respuesta anterior
-        bobOpenPanel();
         recognition.start();
         bobListening = true;
         document.getElementById('bob-mic').dataset.active = 'true';
         bobSetState('listening');
       } catch (e) {
         console.error('Bob speech recognition:', e);
+        bobLog('error', 'No pude encender el micrófono. Ciérralo en otras pestañas o apps e intenta de nuevo.');
+        if (bobPassiveOn) bobSuspendPassive(false);
       }
     }
     function bobStopListening() {
@@ -3546,6 +3609,10 @@ function renderInventoryTable(products) {
     let bobPassiveSuspended = false; // pausado temporalmente (Bob hablando / pestaña oculta)
     let bobWindowTimer = null;
     let bobRestartTimer = null;
+    // El navegador bloquea el micrófono hasta que el usuario toca la página al menos una vez.
+    // Al recargar con la sesión ya iniciada no hay ningún toque todavía, así que el arranque
+    // automático del modo pasivo se aplaza en vez de apagarse (ver bobNoteUserGesture).
+    let bobPassiveNeedsGesture = false;
 
     function bobPassiveWindowMs() {
       const seconds = parseInt(bobPref(ASSIST_KEYS.window, '10'), 10);
@@ -3574,23 +3641,33 @@ function renderInventoryTable(products) {
 
       const recognition = new BobSpeechRecognition();
       bobPassiveRecognition = recognition;
-      recognition.lang = 'es-ES';
+      recognition.lang = BOB_LANG;
       recognition.continuous = true;
-      recognition.interimResults = false;
+      // Con resultados parciales Bob reacciona en cuanto oye su nombre, sin esperar a que el
+      // navegador cierre la frase: es la diferencia entre contestar al momento y parecer sordo.
+      recognition.interimResults = true;
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (e) => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
-          const transcript = e.results[i]?.[0]?.transcript || '';
+          const result = e.results[i];
+          const transcript = result?.[0]?.transcript || '';
           const command = bobExtractWakeCommand(transcript);
           if (command === null) continue; // no dijeron "Bob": se ignora, no se procesa nada
+          if (!result.isFinal) {
+            // Ya oyó su nombre: se enciende la señal mientras la persona termina de hablar.
+            bobSetState('listening');
+            continue;
+          }
           bobStopPassive({ keepEnabled: true });
           if (command) {
             bobHandleMessage(command, { fromVoice: true });
           } else {
-            // Dijeron solo "Bob": Bob contesta y deja el micrófono listo para la orden.
+            // Dijeron solo "Bob": contesta y abre el micrófono para la orden, sin exigir que
+            // vuelvan a decir "Bob".
             bobOpenPanel();
             bobLog('bob', 'Dime.');
+            bobListenAfterSpeaking = true;
             bobSpeak('Dime.');
           }
           return;
@@ -3600,14 +3677,22 @@ function renderInventoryTable(products) {
       recognition.onerror = (e) => {
         bobPassiveRunning = false;
         if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-          // Sin permiso de micrófono el modo pasivo no puede funcionar: se apaga y se avisa,
-          // en vez de reintentar en bucle contra un permiso denegado.
-          bobSetPassiveEnabled(false);
+          if (!bobUserGestureSeen) {
+            // Todavía nadie ha tocado la página: no es un permiso negado, es que el navegador
+            // aún no deja abrir el micrófono. Se reintenta al primer toque.
+            bobPassiveNeedsGesture = true;
+            return;
+          }
+          // Permiso realmente negado: se apaga y se avisa, en vez de reintentar en bucle.
+          bobSetPref(ASSIST_KEYS.enabled, '0');
+          bobStopPassive();
           bobOpenPanel();
-          bobLog('error', 'No pude acceder al micrófono, así que apagué el modo pasivo. Revisa los permisos del navegador y vuelve a activarlo.');
+          bobLog('error', 'No pude acceder al micrófono, así que apagué el modo pasivo. ' + BOB_MIC_DENIED_MSG);
           syncAssistantSubpage();
           return;
         }
+        // "no-speech" y "aborted" son parte normal del ciclo (silencio o cierre de ventana):
+        // se reabre la escucha sin molestar al usuario con un error.
         bobSchedulePassiveRestart(e.error === 'network' ? 5000 : BOB_PASSIVE_PAUSE_MS);
       };
 
@@ -3619,7 +3704,9 @@ function renderInventoryTable(products) {
       try {
         recognition.start();
         bobPassiveRunning = true;
+        bobPassiveNeedsGesture = false;
         bobClearPassiveTimers();
+        bobMarkPassiveIndicator();
         // Cierra la ventana de escucha a tiempo; onend programa la siguiente tras la pausa.
         bobWindowTimer = setTimeout(() => {
           bobWindowTimer = null;
@@ -3631,6 +3718,15 @@ function renderInventoryTable(products) {
       }
     }
 
+    // Señal visible de "el micrófono está abierto": sin ella no hay manera de saber si Bob
+    // está escuchando o si el modo pasivo se cayó en silencio.
+    function bobMarkPassiveIndicator() {
+      const indicator = document.getElementById('bob-indicator');
+      // 'listening' puede haber quedado de una ventana anterior que oyó "Bob" sin orden detrás.
+      if (indicator.dataset.state === 'idle' || indicator.dataset.state === 'listening') bobSetState('passive');
+      indicator.title = 'Bob te escucha: di "Bob..."';
+    }
+
     function bobStopPassive({ keepEnabled = false } = {}) {
       if (!keepEnabled) bobPassiveOn = false;
       bobClearPassiveTimers();
@@ -3639,18 +3735,36 @@ function renderInventoryTable(products) {
         try { bobPassiveRecognition.onend = null; bobPassiveRecognition.stop(); } catch (e) { /* ignorar */ }
         bobPassiveRecognition = null;
       }
-      if (!keepEnabled) bobSetState('idle');
+      if (!keepEnabled) {
+        const indicator = document.getElementById('bob-indicator');
+        indicator.title = 'Bob';
+        bobSetState('idle');
+      }
     }
 
-    function bobSetPassiveEnabled(enabled) {
-      bobSetPref(ASSIST_KEYS.enabled, enabled ? '1' : '0');
-      if (enabled && bobSpeechInputSupported()) {
-        bobPassiveOn = true;
-        bobPassiveSuspended = false;
-        bobPassiveListen();
-      } else {
+    async function bobSetPassiveEnabled(enabled) {
+      if (!enabled) {
+        bobSetPref(ASSIST_KEYS.enabled, '0');
         bobStopPassive();
+        return true;
       }
+      if (!bobSpeechInputSupported()) {
+        bobSetPref(ASSIST_KEYS.enabled, '0');
+        return false;
+      }
+      // Se pide el permiso aquí, con el toque del usuario todavía "caliente": es el momento en
+      // que el navegador muestra el diálogo, y si lo niega se sabe al instante y se dice por qué.
+      if (!(await bobEnsureMicPermission())) {
+        bobSetPref(ASSIST_KEYS.enabled, '0');
+        bobOpenPanel();
+        bobLog('error', BOB_MIC_DENIED_MSG);
+        return false;
+      }
+      bobSetPref(ASSIST_KEYS.enabled, '1');
+      bobPassiveOn = true;
+      bobPassiveSuspended = false;
+      bobPassiveListen();
+      return true;
     }
 
     // Mientras Bob habla el micrófono se apaga; al terminar vuelve solo (si sigue activo).
@@ -3682,6 +3796,30 @@ function renderInventoryTable(products) {
     let bobVoiceConfigured = false; // el negocio tiene una API key de ElevenLabs guardada
     let bobAvailableVoices = [];
     let bobCurrentAudio = null;
+    // Ni speechSynthesis ni un <audio> pueden sonar antes de que el usuario interactúe con la
+    // página: por eso el resumen del día llegaba solo como texto al abrir la app. En vez de
+    // perderse, el mensaje queda en cola y se reproduce en cuanto haya un toque o una tecla.
+    let bobUserGestureSeen = false;
+    let bobPendingSpeech = null;
+    let bobListenAfterSpeaking = false; // tras decir "Dime.", abrir el micrófono para la orden
+
+    function bobNoteUserGesture() {
+      if (bobUserGestureSeen) return;
+      bobUserGestureSeen = true;
+      if (bobPendingSpeech) {
+        const text = bobPendingSpeech;
+        bobPendingSpeech = null;
+        bobSpeak(text);
+      }
+      // Si el modo pasivo quedó esperando este toque para poder abrir el micrófono, arranca ya.
+      if (bobPassiveNeedsGesture && bobPassiveOn) {
+        bobPassiveNeedsGesture = false;
+        bobSchedulePassiveRestart(200);
+      }
+    }
+    ['pointerdown', 'keydown', 'touchstart'].forEach(evt => {
+      document.addEventListener(evt, bobNoteUserGesture, { capture: true });
+    });
 
     function bobStopSpeaking() {
       if (bobCurrentAudio) {
@@ -3691,8 +3829,16 @@ function renderInventoryTable(products) {
       if (bobSpeechOutputSupported()) { try { window.speechSynthesis.cancel(); } catch (e) { /* ignorar */ } }
     }
 
-    async function bobSpeak(text) {
+    async function bobSpeak(text, opts = {}) {
       if (!text) { bobSetState('idle'); return; }
+      if (!bobUserGestureSeen) {
+        // Todavía no hay interacción: el navegador silenciaría esto. Se guarda y suena al
+        // primer toque (bobNoteUserGesture), en vez de perderse sin que nadie sepa por qué.
+        bobPendingSpeech = text;
+        if (opts.hintIfBlocked) bobLog('bob', '🔊 Toca la pantalla y te lo leo en voz alta.');
+        bobSetState('idle');
+        return;
+      }
       const voiceId = bobPref(ASSIST_KEYS.voice, '');
       if (voiceId && bobVoiceConfigured) {
         const ok = await bobSpeakWithElevenLabs(text, voiceId);
@@ -3700,6 +3846,18 @@ function renderInventoryTable(products) {
         // Si ElevenLabs falla (sin créditos, clave inválida, sin red) Bob no se queda mudo.
       }
       bobSpeakWithBrowser(text);
+    }
+
+    // Al terminar de hablar: si Bob acaba de decir "Dime.", abre el micrófono para la orden;
+    // si no, devuelve el micrófono al modo pasivo.
+    function bobAfterSpeaking() {
+      bobSetState('idle');
+      if (bobListenAfterSpeaking) {
+        bobListenAfterSpeaking = false;
+        bobStartListening();
+        return;
+      }
+      bobSuspendPassive(false);
     }
 
     async function bobSpeakWithElevenLabs(text, voiceId) {
@@ -3719,8 +3877,7 @@ function renderInventoryTable(products) {
         const finish = () => {
           URL.revokeObjectURL(url);
           if (bobCurrentAudio === audio) bobCurrentAudio = null;
-          bobSetState('idle');
-          bobSuspendPassive(false);
+          bobAfterSpeaking();
         };
         audio.onended = finish;
         audio.onerror = finish;
@@ -3736,19 +3893,22 @@ function renderInventoryTable(products) {
     }
 
     function bobSpeakWithBrowser(text) {
-      if (!bobSpeechOutputSupported()) { bobSetState('idle'); return; }
+      if (!bobSpeechOutputSupported()) { bobAfterSpeaking(); return; }
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'es-ES';
         utterance.onstart = () => { bobSetState('speaking'); bobSuspendPassive(true); };
-        utterance.onend = () => { bobSetState('idle'); bobSuspendPassive(false); };
-        utterance.onerror = () => { bobSetState('idle'); bobSuspendPassive(false); };
+        utterance.onend = bobAfterSpeaking;
+        utterance.onerror = bobAfterSpeaking;
+        // Algunos navegadores no llegan a disparar onstart si la voz aún no está lista; el
+        // estado se marca igual para que el indicador no se quede colgado en "pensando".
+        bobSetState('speaking');
+        bobSuspendPassive(true);
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.error('Bob speech synthesis:', e);
-        bobSetState('idle');
-        bobSuspendPassive(false);
+        bobAfterSpeaking();
       }
     }
 
@@ -3805,12 +3965,71 @@ function renderInventoryTable(products) {
       document.getElementById('assistant-speech-unsupported').classList.toggle('hidden', supported);
       document.getElementById('cfg-assistant-window').value = bobPref(ASSIST_KEYS.window, '10');
       document.getElementById('cfg-assistant-briefing').checked = bobPref(ASSIST_KEYS.briefing, '1') === '1';
+      document.getElementById('cfg-assistant-speak').checked = bobVoiceRepliesOn();
       await refreshAssistantKeyStatus();
       await loadAssistantVoices();
     }
 
-    document.getElementById('cfg-assistant-enabled').addEventListener('change', (e) => {
-      bobSetPassiveEnabled(e.target.checked);
+    // Prueba de micrófono: la forma más rápida de saber si el problema es el permiso, el
+    // navegador o el propio micrófono, en vez de quedarse con un "Bob no me escucha".
+    function bobTestMicrophone(statusEl) {
+      return new Promise((resolve) => {
+        const wasPassive = bobPassiveOn;
+        if (wasPassive) bobSuspendPassive(true);
+        const recognition = new BobSpeechRecognition();
+        recognition.lang = BOB_LANG;
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+        let heard = '';
+        recognition.onresult = (e) => {
+          for (let i = e.resultIndex; i < e.results.length; i++) {
+            heard = (e.results[i][0]?.transcript || '').trim();
+            if (heard) statusEl.textContent = `🎤 Te escucho: "${heard}"`;
+          }
+        };
+        recognition.onerror = (e) => {
+          if (heard) return;
+          statusEl.textContent = e.error === 'no-speech'
+            ? 'No escuché nada. Acerca el micrófono y prueba otra vez.'
+            : `El reconocimiento falló (${e.error}).`;
+        };
+        recognition.onend = () => {
+          if (heard) statusEl.textContent = `✅ Te escuché: "${heard}". El micrófono funciona.`;
+          if (wasPassive) bobSuspendPassive(false);
+          resolve(heard);
+        };
+        try {
+          recognition.start();
+          setTimeout(() => { try { recognition.stop(); } catch (e) { /* ya estaba detenido */ } }, 6000);
+        } catch (e) {
+          statusEl.textContent = 'No pude encender el micrófono. Ciérralo en otras pestañas o apps.';
+          if (wasPassive) bobSuspendPassive(false);
+          resolve('');
+        }
+      });
+    }
+
+    document.getElementById('btn-test-mic').onclick = async () => {
+      const status = document.getElementById('assistant-mic-status');
+      if (!bobSpeechInputSupported()) {
+        status.textContent = 'Este navegador no reconoce la voz. Usa Chrome o Edge.';
+        return;
+      }
+      status.textContent = 'Pidiendo permiso del micrófono...';
+      if (!(await bobEnsureMicPermission())) {
+        status.textContent = '❌ ' + BOB_MIC_DENIED_MSG;
+        return;
+      }
+      status.textContent = '🎤 Di algo: "Bob, ¿cómo van las ventas?"';
+      await bobTestMicrophone(status);
+    };
+
+    document.getElementById('cfg-assistant-enabled').addEventListener('change', async (e) => {
+      const ok = await bobSetPassiveEnabled(e.target.checked);
+      if (!ok) e.target.checked = false; // el permiso se negó: la casilla no puede mentir
+    });
+    document.getElementById('cfg-assistant-speak').addEventListener('change', (e) => {
+      bobSetPref(ASSIST_KEYS.speak, e.target.checked ? '1' : '0');
     });
     document.getElementById('cfg-assistant-window').addEventListener('change', (e) => {
       bobSetPref(ASSIST_KEYS.window, e.target.value);
@@ -3863,7 +4082,9 @@ function renderInventoryTable(products) {
       bobOpenPanel();
       bobLog('bob', result.say);
       bobConversation.push({ role: 'assistant', content: result.say });
-      if (bobPref(ASSIST_KEYS.enabled, '0') === '1') bobSpeak(result.say);
+      // El resumen se lee en voz alta siempre que la voz esté encendida — no hace falta tener
+      // el modo pasivo activo. Si el navegador aún no permite sonar, queda en cola.
+      if (bobVoiceRepliesOn()) bobSpeak(result.say, { hintIfBlocked: true });
     }
 
     // Arranca el asistente tras iniciar sesión: modo pasivo (si está activado) y resumen diario.
@@ -3873,7 +4094,13 @@ function renderInventoryTable(products) {
       if (bobPref(ASSIST_KEYS.enabled, '0') === '1' && bobSpeechInputSupported()) {
         bobPassiveOn = true;
         bobPassiveSuspended = false;
-        bobPassiveListen();
+        if (bobUserGestureSeen) {
+          bobPassiveListen();
+        } else {
+          // Recarga con la sesión ya iniciada: el navegador todavía no deja abrir el micrófono.
+          // Se arranca al primer toque en la página, sin apagar la preferencia del usuario.
+          bobPassiveNeedsGesture = true;
+        }
       }
       // Si hay una voz de ElevenLabs elegida hay que saber, ya desde el arranque, que el negocio
       // tiene clave; si no, Bob hablaría con la voz del navegador hasta que alguien abriera
