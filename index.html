@@ -416,6 +416,11 @@
     #bob-panel-header strong { font-family: var(--font-grotesk); color: var(--text-primary); }
     #bob-close { background: none; border: none; width: auto; margin: 0; padding: 0.2rem 0.4rem; color: var(--text-muted); font-size: 1.1rem; cursor: pointer; }
     #bob-log { flex: 1; overflow-y: auto; padding: 0.75rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; font-size: 0.88rem; }
+    #bob-heard {
+      padding: 0.35rem 1rem; font-size: 0.78rem; font-style: italic;
+      color: var(--text-secondary); border-top: 1px solid var(--border-subtle);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .bob-msg { max-width: 88%; padding: 0.5rem 0.7rem; border-radius: 8px; line-height: 1.4; }
     .bob-msg-user { align-self: flex-end; background: var(--accent-profit); color: var(--on-accent); }
     .bob-msg-bob { align-self: flex-start; background: var(--bg-input); color: var(--text-primary); }
@@ -1113,6 +1118,9 @@
       <button type="button" id="bob-close">✕</button>
     </div>
     <div id="bob-log"></div>
+    <!-- Lo que el reconocedor está oyendo, en vivo. Sin esto no hay forma de distinguir
+         "el micrófono no capta" de "entendió otra cosa". -->
+    <div id="bob-heard" class="hidden"></div>
     <form id="bob-form">
       <button type="button" id="bob-mic" class="hidden" data-active="false" title="Hablar con Bob">🎤</button>
       <input type="text" id="bob-input" placeholder="Pregúntale algo a Bob..." maxlength="300" autocomplete="off">
@@ -3532,11 +3540,23 @@ function renderInventoryTable(products) {
       if (bobRecognition || !bobSpeechInputSupported()) return bobRecognition;
       bobRecognition = new BobSpeechRecognition();
       bobRecognition.lang = BOB_LANG;
-      bobRecognition.interimResults = false;
-      bobRecognition.maxAlternatives = 1;
+      // Parciales también aquí: mientras hablas ves lo que Bob va entendiendo, en vez de un
+      // botón encendido que no dice nada hasta el final.
+      bobRecognition.interimResults = true;
+      bobRecognition.maxAlternatives = 3;
       bobRecognition.onresult = (e) => {
-        const transcript = e.results?.[e.results.length - 1]?.[0]?.transcript || '';
-        if (transcript.trim()) bobHandleMessage(transcript, { fromVoice: true });
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const result = e.results[i];
+          if (!result) continue;
+          const text = (result[0]?.transcript || '').trim();
+          if (text) bobShowHeard(text);
+          if (!result.isFinal || !text) continue;
+          // Por el botón no hace falta decir "Bob": si lo dijo igual, se quita del mensaje.
+          const scan = bobScanForWake(text);
+          const command = scan.wake && scan.command ? scan.command : text;
+          bobHandleMessage(command, { fromVoice: true });
+          return;
+        }
       };
       bobRecognition.onerror = (e) => {
         bobListening = false;
@@ -3608,8 +3628,70 @@ function renderInventoryTable(products) {
     // reconocimiento por su cuenta. Se mantiene corta a propósito: cada reapertura enciende el
     // indicador de micrófono del navegador y del sistema, y en ese hueco Bob está sordo.
     const BOB_PASSIVE_PAUSE_MS = 300;
-    // El reconocedor en español transcribe "Bob" de varias formas según el micrófono y el acento.
-    const BOB_WAKE_RE = /\b(bob|bod|bop|boc|bob's|vob|bap)\b[\s,.:;!?¡¿-]*(.*)$/i;
+    // El reconocedor en español casi nunca transcribe "Bob" tal cual: según el micrófono y el
+    // acento sale "bop", "bod", "boj", "vos", "bob's"... Una lista cerrada de variantes deja
+    // fuera justo la que dice tu micrófono, así que además de la lista se acepta cualquier
+    // palabra corta que empiece por b/v/p y esté a un solo cambio de letra de "bob".
+    const BOB_WAKE_WORDS = new Set([
+      'bob', 'bobs', 'bop', 'bod', 'boc', 'bok', 'boj', 'bog', 'bot', 'box', 'bob\'s',
+      'vob', 'vop', 'bap', 'bab', 'pop', 'bomb', 'boss', 'bots', 'bux', 'buf'
+    ]);
+
+    // Distancia de edición con tope: solo interesa saber si hay 0 o 1 cambio de diferencia.
+    function bobEditDistance(a, b) {
+      if (Math.abs(a.length - b.length) > 1) return 2;
+      let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+      for (let i = 1; i <= a.length; i++) {
+        const row = [i];
+        for (let j = 1; j <= b.length; j++) {
+          row[j] = Math.min(
+            prev[j] + 1,
+            row[j - 1] + 1,
+            prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+          );
+        }
+        prev = row;
+      }
+      return prev[b.length];
+    }
+
+    function bobIsWakeWord(token, allowFuzzy) {
+      if (!token) return false;
+      if (BOB_WAKE_WORDS.has(token)) return true;
+      if (!allowFuzzy) return false;
+      // Difuso solo al principio de la frase: a mitad de una conversación, una palabra
+      // parecida a "bob" es casi siempre una falsa alarma.
+      if (token.length < 2 || token.length > 4 || !/^[bvp]/.test(token)) return false;
+      return bobEditDistance(token, 'bob') <= 1;
+    }
+
+    // Busca la palabra clave y devuelve lo que viene después (la orden). Trabaja por palabras
+    // en vez de con una expresión regular sobre la frase entera, para poder aplicar tolerancia
+    // por palabra y conservar el texto original (con tildes y mayúsculas) de la orden.
+    function bobScanForWake(text) {
+      const words = String(text || '').trim().split(/\s+/).filter(Boolean);
+      for (let i = 0; i < words.length; i++) {
+        const token = bobNormalize(words[i]).replace(/[^a-z0-9']/g, '');
+        if (!bobIsWakeWord(token, i < 3)) continue;
+        const command = words.slice(i + 1).join(' ').replace(/^[\s,.:;!?¡¿-]+/, '').trim();
+        return { wake: true, command };
+      }
+      return { wake: false, command: '' };
+    }
+
+    // Chrome devuelve varias transcripciones posibles: la más probable puede haberse comido el
+    // "Bob" mientras otra lo conserva. Se revisan todas y gana la que sí trae la palabra clave.
+    function bobReadResult(result) {
+      let fallback = '';
+      for (let i = 0; i < (result?.length || 0); i++) {
+        const text = (result[i]?.transcript || '').trim();
+        if (!text) continue;
+        if (!fallback) fallback = text;
+        const scan = bobScanForWake(text);
+        if (scan.wake) return { text, wake: true, command: scan.command };
+      }
+      return { text: fallback, wake: false, command: '' };
+    }
 
     let bobPassiveOn = false;        // el usuario lo activó en Configuración
     let bobPassiveRecognition = null;
@@ -3641,10 +3723,52 @@ function renderInventoryTable(products) {
     }
     bobMigrateListeningPref();
 
-    function bobExtractWakeCommand(transcript) {
-      const m = (transcript || '').match(BOB_WAKE_RE);
-      if (!m) return null;
-      return (m[2] || '').trim();
+    // Tras oír "Bob" a secas, la siguiente frase es la orden aunque no repita la palabra clave.
+    // Es la diferencia entre "Bob... cuánto vendí hoy" funcionando o perdiéndose: antes Bob
+    // cerraba el micrófono para contestar "Dime." y la orden se decía mientras estaba sordo.
+    let bobAwaitingCommand = false;
+    let bobAwaitingTimer = null;
+    const BOB_AWAITING_MS = 12000;
+
+    function bobClearAwaiting() {
+      bobAwaitingCommand = false;
+      if (bobAwaitingTimer) { clearTimeout(bobAwaitingTimer); bobAwaitingTimer = null; }
+    }
+
+    function bobBeginAwaitingCommand() {
+      bobClearAwaiting();
+      bobAwaitingCommand = true;
+      bobOpenPanel();
+      bobSetState('listening');
+      bobShowHeard('Te escucho, dime qué necesitas...', true);
+      bobAwaitingTimer = setTimeout(() => {
+        bobAwaitingTimer = null;
+        bobAwaitingCommand = false;
+        if (bobPassiveOn) bobMarkPassiveIndicator();
+      }, BOB_AWAITING_MS);
+    }
+
+    // Muestra en vivo lo que el reconocedor va entendiendo. Es el único modo de saber si el
+    // problema es que no capta audio o que entiende otra cosa.
+    let bobHeardTimer = null;
+    function bobShowHeard(text, sticky = false) {
+      const el = document.getElementById('bob-heard');
+      if (!text) { el.classList.add('hidden'); return; }
+      el.textContent = `🎧 ${text}`;
+      el.classList.remove('hidden');
+      if (bobHeardTimer) { clearTimeout(bobHeardTimer); bobHeardTimer = null; }
+      bobHeardTimer = setTimeout(() => {
+        bobHeardTimer = null;
+        el.classList.add('hidden');
+      }, sticky ? 12000 : 6000);
+    }
+
+    // Una orden captada por voz: se suelta el micrófono (para no oír la respuesta de Bob) y
+    // entra por el mismo camino que el texto escrito.
+    function bobRunVoiceCommand(command) {
+      bobClearAwaiting();
+      bobStopPassive({ keepEnabled: true });
+      bobHandleMessage(command, { fromVoice: true });
     }
 
     function bobClearPassiveTimers() {
@@ -3668,31 +3792,35 @@ function renderInventoryTable(products) {
       // Con resultados parciales Bob reacciona en cuanto oye su nombre, sin esperar a que el
       // navegador cierre la frase: es la diferencia entre contestar al momento y parecer sordo.
       recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+      // Varias transcripciones posibles: si la más probable se comió el "Bob", otra puede traerlo.
+      recognition.maxAlternatives = 3;
 
       recognition.onresult = (e) => {
         for (let i = e.resultIndex; i < e.results.length; i++) {
           const result = e.results[i];
-          const transcript = result?.[0]?.transcript || '';
-          const command = bobExtractWakeCommand(transcript);
-          if (command === null) continue; // no dijeron "Bob": se ignora, no se procesa nada
+          if (!result) continue;
+          const heard = bobReadResult(result);
+          if (heard.text) bobShowHeard(heard.text, bobAwaitingCommand);
+
           if (!result.isFinal) {
             // Ya oyó su nombre: se enciende la señal mientras la persona termina de hablar.
-            bobSetState('listening');
+            if (heard.wake) bobSetState('listening');
             continue;
           }
-          bobStopPassive({ keepEnabled: true });
-          if (command) {
-            bobHandleMessage(command, { fromVoice: true });
-          } else {
-            // Dijeron solo "Bob": contesta y abre el micrófono para la orden, sin exigir que
-            // vuelvan a decir "Bob".
-            bobOpenPanel();
-            bobLog('bob', 'Dime.');
-            bobListenAfterSpeaking = true;
-            bobSpeak('Dime.');
+
+          if (heard.wake) {
+            if (heard.command) { bobRunVoiceCommand(heard.command); return; }
+            // Dijeron solo "Bob". El micrófono NO se cierra y Bob no habla encima: la siguiente
+            // frase se toma como la orden, aunque no repita la palabra clave.
+            bobBeginAwaitingCommand();
+            return;
           }
-          return;
+
+          if (bobAwaitingCommand && heard.text) {
+            bobRunVoiceCommand(heard.text);
+            return;
+          }
+          // Sin palabra clave y sin orden pendiente: es conversación ajena, se ignora.
         }
       };
 
@@ -3756,6 +3884,7 @@ function renderInventoryTable(products) {
 
     function bobStopPassive({ keepEnabled = false } = {}) {
       if (!keepEnabled) bobPassiveOn = false;
+      bobClearAwaiting();
       bobClearPassiveTimers();
       bobPassiveRunning = false;
       if (bobPassiveRecognition) {
@@ -3828,7 +3957,6 @@ function renderInventoryTable(products) {
     // perderse, el mensaje queda en cola y se reproduce en cuanto haya un toque o una tecla.
     let bobUserGestureSeen = false;
     let bobPendingSpeech = null;
-    let bobListenAfterSpeaking = false; // tras decir "Dime.", abrir el micrófono para la orden
 
     function bobNoteUserGesture() {
       if (bobUserGestureSeen) return;
@@ -3848,7 +3976,13 @@ function renderInventoryTable(products) {
       document.addEventListener(evt, bobNoteUserGesture, { capture: true });
     });
 
+    // Cada lectura lleva un número de serie: al cancelar se incrementa, y la cadena de trozos
+    // pendientes se detiene sola en vez de seguir hablando sobre lo siguiente.
+    let bobSpeakSeq = 0;
+
     function bobStopSpeaking() {
+      bobSpeakSeq++;
+      bobClearSpeakGuards();
       if (bobCurrentAudio) {
         try { bobCurrentAudio.pause(); } catch (e) { /* ignorar */ }
         bobCurrentAudio = null;
@@ -3875,15 +4009,44 @@ function renderInventoryTable(products) {
       bobSpeakWithBrowser(text);
     }
 
-    // Al terminar de hablar: si Bob acaba de decir "Dime.", abre el micrófono para la orden;
-    // si no, devuelve el micrófono al modo pasivo.
-    function bobAfterSpeaking() {
-      bobSetState('idle');
-      if (bobListenAfterSpeaking) {
-        bobListenAfterSpeaking = false;
-        bobStartListening();
-        return;
+    // Al terminar de hablar, el micrófono vuelve al modo pasivo. Este es el ÚNICO camino de
+    // vuelta, y por eso lleva perro guardián: speechSynthesis de Chrome a veces no dispara
+    // onend nunca (sobre todo con textos largos, como el resumen del día). Cuando eso pasaba,
+    // la escucha quedaba suspendida para siempre y Bob no volvía a oír nada en toda la sesión.
+    let bobSpeakWatchdog = null;
+    let bobSpeakKeepAlive = null;
+
+    function bobArmSpeakGuards(text) {
+      bobClearSpeakGuards();
+      // Margen generoso sobre lo que tarda leer el texto; solo actúa si onend no llegó.
+      const ms = Math.min(45000, Math.max(8000, String(text || '').length * 110));
+      bobSpeakWatchdog = setTimeout(() => {
+        bobSpeakWatchdog = null;
+        console.warn('Bob: la síntesis de voz no avisó que terminó; se reanuda la escucha.');
+        bobAfterSpeaking();
+      }, ms);
+      // Chrome pausa la síntesis por su cuenta pasados ~15 s; resume() periódico lo evita.
+      // Este intervalo SOLO mantiene viva la locución: nunca cancela el perro guardián, porque
+      // speaking puede ser false mientras la frase está todavía en cola, y desactivarlo ahí
+      // dejaría la escucha suspendida para siempre — sin vía de vuelta.
+      if (bobSpeechOutputSupported()) {
+        bobSpeakKeepAlive = setInterval(() => {
+          try {
+            const synth = window.speechSynthesis;
+            if (synth.speaking || synth.pending) synth.resume();
+          } catch (e) { /* ignorar */ }
+        }, 7000);
       }
+    }
+
+    function bobClearSpeakGuards() {
+      if (bobSpeakWatchdog) { clearTimeout(bobSpeakWatchdog); bobSpeakWatchdog = null; }
+      if (bobSpeakKeepAlive) { clearInterval(bobSpeakKeepAlive); bobSpeakKeepAlive = null; }
+    }
+
+    function bobAfterSpeaking() {
+      bobClearSpeakGuards();
+      bobSetState('idle');
       bobSuspendPassive(false);
     }
 
@@ -3910,6 +4073,7 @@ function renderInventoryTable(products) {
         audio.onerror = finish;
         bobSetState('speaking');
         bobSuspendPassive(true);
+        bobArmSpeakGuards(text); // si el audio nunca termina de sonar, la escucha vuelve igual
         await audio.play();
         return true;
       } catch (e) {
@@ -3919,20 +4083,81 @@ function renderInventoryTable(products) {
       }
     }
 
+    // Chrome corta las frases largas a media lectura, y el resumen del día es largo. Se parte
+    // por frases en trozos cortos que se leen en cadena.
+    // Corta por frases sin perder un solo carácter. Un punto solo cierra frase cuando detrás
+    // viene un espacio o el final del texto: así "12.450 pesos" no se lee como "doce punto,
+    // cuatrocientos cincuenta", que en una app de dinero sería un desastre.
+    function bobSplitSentences(text) {
+      const source = String(text);
+      const pieces = [];
+      let buffer = '';
+      for (let i = 0; i < source.length; i++) {
+        const ch = source[i];
+        buffer += ch;
+        if (ch === '\n') { pieces.push(buffer); buffer = ''; continue; }
+        if ('.!?…'.indexOf(ch) === -1) continue;
+        const next = source[i + 1];
+        if (next === undefined || /\s/.test(next)) { pieces.push(buffer); buffer = ''; }
+      }
+      if (buffer) pieces.push(buffer);
+      return pieces;
+    }
+
+    function bobChunkForSpeech(text, max = 180) {
+      const pieces = bobSplitSentences(text);
+      const chunks = [];
+      let current = '';
+      pieces.forEach(piece => {
+        if (current && (current + piece).length > max) { chunks.push(current.trim()); current = piece; }
+        else current += piece;
+      });
+      if (current.trim()) chunks.push(current.trim());
+
+      // Una sola frase más larga que el tope se parte por palabras; y si una palabra suelta
+      // (una URL, un código) ya no cabe, se corta a lo bruto antes que dejarla sin leer.
+      const out = [];
+      chunks.forEach(chunk => {
+        if (chunk.length <= max * 1.6) { out.push(chunk); return; }
+        let line = '';
+        chunk.split(/\s+/).forEach(rawWord => {
+          let word = rawWord;
+          while (word.length > max) {
+            if (line) { out.push(line); line = ''; }
+            out.push(word.slice(0, max));
+            word = word.slice(max);
+          }
+          if (!word) return;
+          if (line && (line + ' ' + word).length > max) { out.push(line); line = word; }
+          else line = line ? `${line} ${word}` : word;
+        });
+        if (line) out.push(line);
+      });
+      return out.filter(Boolean);
+    }
+
     function bobSpeakWithBrowser(text) {
       if (!bobSpeechOutputSupported()) { bobAfterSpeaking(); return; }
       try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'es-ES';
-        utterance.onstart = () => { bobSetState('speaking'); bobSuspendPassive(true); };
-        utterance.onend = bobAfterSpeaking;
-        utterance.onerror = bobAfterSpeaking;
-        // Algunos navegadores no llegan a disparar onstart si la voz aún no está lista; el
-        // estado se marca igual para que el indicador no se quede colgado en "pensando".
+        const chunks = bobChunkForSpeech(text);
+        if (!chunks.length) { bobAfterSpeaking(); return; }
+        const seq = ++bobSpeakSeq;
         bobSetState('speaking');
         bobSuspendPassive(true);
-        window.speechSynthesis.speak(utterance);
+        bobArmSpeakGuards(text);
+        let index = 0;
+        const speakNext = () => {
+          // Si algo canceló o reemplazó esta lectura, no se sigue leyendo lo que quedaba.
+          if (seq !== bobSpeakSeq) return;
+          if (index >= chunks.length) { bobAfterSpeaking(); return; }
+          const utterance = new SpeechSynthesisUtterance(chunks[index++]);
+          utterance.lang = BOB_LANG;
+          utterance.onend = speakNext;
+          utterance.onerror = speakNext;
+          window.speechSynthesis.speak(utterance);
+        };
+        speakNext();
       } catch (e) {
         console.error('Bob speech synthesis:', e);
         bobAfterSpeaking();
