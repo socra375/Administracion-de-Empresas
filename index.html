@@ -3411,7 +3411,9 @@ function renderInventoryTable(products) {
       { test: t => /\b(quien(es)? me deben?|deudores|cuentas por cobrar|creditos? pendientes?)\b/.test(t), run: () => requestToolCall('getDebtors', {}) },
       { test: t => /\b(mas vendidos?|top productos?|productos? mas vendidos?)\b/.test(t), run: () => requestToolCall('getTopProducts', { period: 'month' }) },
       { test: t => /\b(como va|resumen|que esta pasando)\b.*\bnegocio\b/.test(t), run: () => requestToolCall('getBusinessSummary', {}) },
-      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => requestToolCall('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) },
+      // Se quita la primera palabra del texto ORIGINAL (busca / encuentra / localiza...), no del
+      // canónico: así lo buscado conserva sus tildes y mayúsculas y no lo toca ningún sinónimo.
+      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => requestToolCall('search', { query: raw.trim().replace(/^\S+\s+/, '') }) },
       // Frases frecuentes que antes caían en la IA remota: resolverlas aquí las hace instantáneas
       // y gratis. Van al final para no pisar los patrones más específicos de arriba.
       { test: t => /\bventas?\b.*\bhoy\b|\bhoy\b.*\bventas?\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'today' }) },
@@ -3419,14 +3421,94 @@ function renderInventoryTable(products) {
       { test: t => /\bventas?\b.*\bmes\b|\bmes\b.*\bventas?\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'month' }) },
       { test: t => /\b(como (vamos|voy|va todo)|que tal (vamos|voy|va)|como estamos)\b/.test(t), run: () => requestToolCall('getBusinessSummary', {}) },
       { test: t => /\b(que|cuanto)\b.*\b(me deben|por cobrar|debe[nm]?)\b/.test(t), run: () => requestToolCall('getDebtors', {}) },
-      { test: t => /\b(se (me )?(acaba|agota)|falta|reponer|queda poco)\b.*\b(stock|producto|inventario)\b/.test(t), run: () => requestToolCall('getLowStockProducts', {}) },
+      // Sin exigir un orden concreto: "se me acaba el stock" y "el stock se acaba" son lo mismo.
+      { test: t => /\b(se (me )?(acaba|agota)|falta|faltan|reponer|queda poco|quedan pocos?)\b/.test(t) && /\b(stock|producto|productos|inventario)\b/.test(t), run: () => requestToolCall('getLowStockProducts', {}) },
       { test: t => /\b(que se vende|que vendo)\b.*\b(mas|mejor)\b/.test(t), run: () => requestToolCall('getTopProducts', { period: 'month' }) }
     ];
 
+    // ---------------------------------------------------------------
+    // SINÓNIMOS: cada quien pide lo mismo con palabras distintas
+    // ---------------------------------------------------------------
+    // "cuánto vendí", "cuánto facturé", "cómo van los ingresos" y "qué tanto despaché" son la
+    // misma pregunta. En vez de ampliar sin fin cada expresión regular, se traduce primero lo
+    // que dijo el usuario al vocabulario que esas expresiones ya entienden. La dirección
+    // importa: los sinónimos apuntan HACIA la palabra canónica que los patrones usan, nunca al
+    // revés — así no se rompe ningún patrón existente.
+    const BOB_PHRASE_SYNONYMS = [
+      [/\bque tanto\b/g, 'cuanto'],
+      [/\bque tan (bien|mal)\b/g, 'como'],
+      [/\bcuanto dinero\b/g, 'cuanto'],
+      [/\bme adeudan\b/g, 'me deben'],
+      [/\b(cuentas|dinero) (pendientes?|pendiente) de cobro\b/g, 'cuentas por cobrar'],
+      [/\bquiero ver\b/g, 'muestrame'],
+      [/\bdejame ver\b/g, 'muestrame'],
+      [/\bpuedes (abrir|mostrarme)\b/g, 'abre'],
+      [/\bsacame (el|la|los|las)\b/g, 'muestrame'],
+      [/\bnumero de ventas\b/g, 'ventas'],
+      [/\ben numeros rojos\b/g, 'perdida'],
+      [/\bse (me )?(esta |estan )?(acabando|agotando)\b/g, 'se acaba'],
+      [/\bpor (acabarse|agotarse|terminarse)\b/g, 'se acaba'],
+      [/\b(esta|estan|anda|andan|va|van)\s+(muy\s+)?baj[oa]s?\b/g, 'bajo'],
+      [/\bse (esta|estan) (terminando|acabando)\b/g, 'se acaba'],
+      [/\bmas populares?\b/g, 'mas vendidos'],
+      [/\bque mas sale\b/g, 'mas vendidos'],
+      [/\bmejor vendidos?\b/g, 'mas vendidos']
+    ];
+
+    // Palabra suelta -> palabra canónica. Se agrupa por destino para que se lea de un vistazo.
+    const BOB_WORD_SYNONYMS = {
+      // Verbos de navegación (los patrones usan abre/ve/muestrame/llevame)
+      muestrame: ['ensename', 'enseñame', 'dame', 'ponme', 'pon', 'despliega', 'visualiza', 'consultame', 'revisa', 'checa', 'chequea'],
+      abre: ['abreme', 'abrir', 'entra', 'entrar', 'accede', 'ingresa'],
+      llevame: ['vamos', 'llevar', 'lleva', 'mandame', 'salta'],
+      // Secciones
+      ventas: ['vendi', 'vendido', 'vendimos', 'vendiste', 'venta', 'facture', 'facturado', 'facturacion', 'factured', 'ingresos', 'ingreso', 'despache', 'despachado', 'cobre', 'recaude', 'recaudado', 'vendieron'],
+      inventario: ['almacen', 'bodega', 'deposito', 'catalogo'],
+      stock: ['existencias', 'existencia', 'mercancia', 'mercaderia', 'surtido'],
+      clientes: ['compradores', 'comprador', 'clientela', 'cliente'],
+      dashboard: ['panel', 'tablero', 'inicio', 'principal', 'portada'],
+      facturas: ['factura', 'recibos', 'recibo', 'comprobantes', 'comprobante'],
+      reportes: ['reporte', 'informes', 'informe', 'estadisticas', 'metricas'],
+      empleados: ['empleado', 'personal', 'trabajadores', 'trabajador', 'plantilla', 'equipo', 'colaboradores'],
+      configuracion: ['config', 'ajustes', 'ajuste', 'opciones', 'preferencias', 'settings'],
+      // Conceptos
+      ganancia: ['ganancias', 'utilidad', 'utilidades', 'beneficio', 'beneficios', 'margen', 'rentabilidad'],
+      resumen: ['balance', 'panorama', 'situacion', 'estado'],
+      deudores: ['morosos', 'moroso', 'deudor'],
+      creditos: ['credito', 'fiados', 'fiado', 'deudas', 'deuda'],
+      hoy: ['ahora', 'actualmente'],
+      mes: ['mensual', 'mensuales'],
+      semana: ['semanal', 'semanales'],
+      busca: ['buscar', 'encuentra', 'encontrar', 'localiza', 'ubica', 'buscame']
+    };
+
+    // Se invierte una sola vez al cargar: buscar por palabra es O(1) en cada mensaje.
+    const BOB_SYNONYM_LOOKUP = {};
+    Object.entries(BOB_WORD_SYNONYMS).forEach(([canonical, words]) => {
+      words.forEach(word => { BOB_SYNONYM_LOOKUP[bobNormalize(word)] = canonical; });
+    });
+
+    function bobCanonicalize(normalized) {
+      let text = normalized;
+      BOB_PHRASE_SYNONYMS.forEach(([pattern, replacement]) => { text = text.replace(pattern, replacement); });
+      return text
+        .split(/\s+/)
+        .map(word => {
+          // La puntuación se aparta y se vuelve a pegar, para no perder "¿" ni "?" del final.
+          const core = word.replace(/[^a-z0-9ñ]/g, '');
+          const canonical = BOB_SYNONYM_LOOKUP[core];
+          return canonical ? word.replace(core, canonical) : word;
+        })
+        .join(' ');
+    }
+
     function runIntentEngine(rawText) {
       const normalized = bobNormalize(rawText);
+      // Los patrones se prueban contra el texto ya traducido a vocabulario canónico; rawText
+      // sigue intacto para las herramientas que necesitan el texto tal cual (p. ej. buscar).
+      const canonical = bobCanonicalize(normalized);
       for (const intent of BOB_INTENTS) {
-        if (intent.test(normalized)) return intent.run(normalized, rawText);
+        if (intent.test(canonical)) return intent.run(canonical, rawText);
       }
       return null;
     }
@@ -3976,6 +4058,121 @@ function renderInventoryTable(products) {
       document.addEventListener(evt, bobNoteUserGesture, { capture: true });
     });
 
+    // ---------------------------------------------------------------
+    // CIFRAS HABLADAS: de "$120.50" a "ciento veinte pesos con cincuenta centavos"
+    // ---------------------------------------------------------------
+    // El sintetizador lee los dígitos uno a uno o por pares ("uno veinte"), que suena a robot
+    // y encima es ambiguo con dinero. Lo que se MUESTRA sigue en cifras, que es como se lee
+    // mejor en pantalla; solo lo que se HABLA se convierte a palabras.
+    const BOB_CURRENCIES = {
+      '$':    { one: 'dólar', many: 'dólares', centOne: 'centavo', centMany: 'centavos' },
+      'RD$':  { one: 'peso', many: 'pesos', centOne: 'centavo', centMany: 'centavos' },
+      'MXN$': { one: 'peso', many: 'pesos', centOne: 'centavo', centMany: 'centavos' },
+      '€':    { one: 'euro', many: 'euros', centOne: 'céntimo', centMany: 'céntimos' }
+    };
+
+    const BOB_UNITS = ['cero', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho',
+      'nueve', 'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete',
+      'dieciocho', 'diecinueve', 'veinte', 'veintiuno', 'veintidós', 'veintitrés', 'veinticuatro',
+      'veinticinco', 'veintiséis', 'veintisiete', 'veintiocho', 'veintinueve'];
+    const BOB_TENS = ['', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa'];
+    const BOB_HUNDREDS = ['', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
+      'seiscientos', 'setecientos', 'ochocientos', 'novecientos'];
+
+    // apócope = "un peso" y "veintiún pesos", no "uno peso" ni "veintiuno pesos".
+    function bobBelowThousandToWords(n, apocope) {
+      if (n === 0) return '';
+      if (n === 100) return 'cien';
+      const hundreds = Math.floor(n / 100);
+      const rest = n % 100;
+      let out = hundreds ? BOB_HUNDREDS[hundreds] : '';
+      if (rest) {
+        if (out) out += ' ';
+        if (rest < 30) out += BOB_UNITS[rest];
+        else {
+          const tens = Math.floor(rest / 10);
+          const units = rest % 10;
+          out += BOB_TENS[tens] + (units ? ` y ${BOB_UNITS[units]}` : '');
+        }
+      }
+      if (apocope) out = out.replace(/veintiuno$/, 'veintiún').replace(/\buno$/, 'un');
+      return out;
+    }
+
+    function bobNumberToWords(value, apocope = true) {
+      const negative = value < 0;
+      const n = Math.floor(Math.abs(value));
+      if (n === 0) return negative ? 'menos cero' : 'cero';
+      const millions = Math.floor(n / 1000000);
+      const thousands = Math.floor((n % 1000000) / 1000);
+      const rest = n % 1000;
+      const parts = [];
+      if (millions) parts.push(millions === 1 ? 'un millón' : `${bobNumberToWords(millions, true)} millones`);
+      // El millar siempre lleva apócope: "veintiún mil", nunca "veintiuno mil".
+      if (thousands) parts.push(thousands === 1 ? 'mil' : `${bobBelowThousandToWords(thousands, true)} mil`);
+      if (rest) parts.push(bobBelowThousandToWords(rest, apocope));
+      return (negative ? 'menos ' : '') + parts.join(' ');
+    }
+
+    // La app escribe los importes con dos decimales, así que un separador seguido de TRES
+    // dígitos es separador de miles ("1.234"), y de uno o dos, decimales ("1.50").
+    function bobParseNumber(raw) {
+      const text = String(raw).trim();
+      const decimalPos = Math.max(text.lastIndexOf('.'), text.lastIndexOf(','));
+      if (decimalPos === -1) return parseFloat(text) || 0;
+      const tail = text.slice(decimalPos + 1);
+      if (!/^\d{1,2}$/.test(tail)) return parseFloat(text.replace(/[.,]/g, '')) || 0;
+      const head = text.slice(0, decimalPos).replace(/[.,]/g, '');
+      return parseFloat(`${head || '0'}.${tail}`) || 0;
+    }
+
+    function bobMoneyToWords(amount, symbol) {
+      const currency = BOB_CURRENCIES[symbol] || BOB_CURRENCIES['$'];
+      const negative = amount < 0;
+      const totalCents = Math.round(Math.abs(amount) * 100);
+      const whole = Math.floor(totalCents / 100);
+      const cents = totalCents % 100;
+      let out = `${bobNumberToWords(whole)} ${whole === 1 ? currency.one : currency.many}`;
+      if (cents) out += ` con ${bobNumberToWords(cents)} ${cents === 1 ? currency.centOne : currency.centMany}`;
+      return (negative ? 'menos ' : '') + out;
+    }
+
+    function bobEscapeRegExp(text) {
+      return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // Símbolos de más largo a más corto: "RD$" termina en "$", y al revés se convertiría la
+    // parte final dejando suelto un "RD" que el sintetizador leería letra por letra.
+    // Cada separador exige dígitos detrás: si no, el patrón se tragaría el punto final de la
+    // frase y "RD$21.00." se leería como dos mil cien.
+    const BOB_NUMBER_PATTERN = '-?\\d+(?:[.,]\\d+)*';
+    const BOB_CURRENCY_RE = new RegExp(
+      `(${Object.keys(BOB_CURRENCIES).sort((a, b) => b.length - a.length).map(bobEscapeRegExp).join('|')})\\s*(${BOB_NUMBER_PATTERN})`,
+      'g'
+    );
+    const BOB_PERCENT_RE = new RegExp(`(${BOB_NUMBER_PATTERN})\\s*%`, 'g');
+    // Cifras sueltas. Se excluyen las pegadas a letras, guiones, barras o dos puntos para no
+    // tocar fechas (2026-09-20), horas (14:30), teléfonos o nombres de producto ("Cola 2L").
+    const BOB_BARE_NUMBER_RE = new RegExp(`(^|[^\\w.,/:-])(${BOB_NUMBER_PATTERN})(?![\\w/:-])`, 'g');
+
+    function bobTextForSpeech(text) {
+      if (!text) return text;
+      // Solo en español: en otro idioma el propio sintetizador lee bien "$120.50", y estas
+      // palabras serían peores que los dígitos.
+      if (!/^es/i.test(BOB_LANG)) return text;
+      let out = String(text);
+      out = out.replace(BOB_CURRENCY_RE, (match, sym, number) => bobMoneyToWords(bobParseNumber(number), sym));
+      out = out.replace(BOB_PERCENT_RE, (match, number) => `${bobNumberToWords(bobParseNumber(number), false)} por ciento`);
+      out = out.replace(BOB_BARE_NUMBER_RE, (match, before, number) => {
+        const value = bobParseNumber(number);
+        // Los enteros pequeños se dejan en cifras: el sintetizador ya los lee bien y además
+        // acierta el género ("1 venta" suena "una venta"; "uno venta" sonaría peor).
+        if (Number.isInteger(value) && Math.abs(value) < 1000) return match;
+        return `${before}${bobNumberToWords(value, false)}`;
+      });
+      return out;
+    }
+
     // Cada lectura lleva un número de serie: al cancelar se incrementa, y la cadena de trozos
     // pendientes se detiene sola en vez de seguir hablando sobre lo siguiente.
     let bobSpeakSeq = 0;
@@ -4000,13 +4197,15 @@ function renderInventoryTable(products) {
         bobSetState('idle');
         return;
       }
+      // Las cifras se pasan a palabras justo antes de hablar; en el panel siguen en dígitos.
+      const spoken = bobTextForSpeech(text);
       const voiceId = bobPref(ASSIST_KEYS.voice, '');
       if (voiceId && bobVoiceConfigured) {
-        const ok = await bobSpeakWithElevenLabs(text, voiceId);
+        const ok = await bobSpeakWithElevenLabs(spoken, voiceId);
         if (ok) return;
         // Si ElevenLabs falla (sin créditos, clave inválida, sin red) Bob no se queda mudo.
       }
-      bobSpeakWithBrowser(text);
+      bobSpeakWithBrowser(spoken);
     }
 
     // Al terminar de hablar, el micrófono vuelve al modo pasivo. Este es el ÚNICO camino de
