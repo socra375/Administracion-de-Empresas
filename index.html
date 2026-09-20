@@ -913,13 +913,14 @@
         <p class="cfg-hint">Bob lee sus respuestas, le hayas escrito o le hayas hablado. Apágalo si prefieres leerlo en silencio.</p>
 
         <label style="margin-top: 1.2rem;">Ventana de escucha</label>
-        <p class="cfg-hint">Bob escucha por bloques de este tiempo, con una pausa breve entre uno y otro para gastar menos batería y datos. Bloques cortos ahorran más; bloques largos cortan menos las frases.</p>
+        <p class="cfg-hint">Con <strong>escucha continua</strong> el micrófono se abre una sola vez y se queda abierto: es lo que debes usar normalmente. Los bloques de segundos cierran y vuelven a abrir el micrófono cada tanto para gastar menos batería, pero hacen que el indicador de micrófono se encienda y se apague, y en cada corte Bob queda sordo un instante.</p>
         <select id="cfg-assistant-window">
-          <option value="5">5 segundos</option>
-          <option value="10" selected>10 segundos</option>
-          <option value="15">15 segundos</option>
-          <option value="20">20 segundos</option>
-          <option value="30">30 segundos</option>
+          <option value="0" selected>Continua (recomendada)</option>
+          <option value="5">Bloques de 5 segundos</option>
+          <option value="10">Bloques de 10 segundos</option>
+          <option value="15">Bloques de 15 segundos</option>
+          <option value="20">Bloques de 20 segundos</option>
+          <option value="30">Bloques de 30 segundos</option>
         </select>
 
         <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.2rem;">
@@ -1154,7 +1155,9 @@
       // hayas escrito y aunque no tengas el micrófono encendido.
       speak: 'pyme_assist_speak',
       voice: 'pyme_assist_voice',
-      lastBriefing: 'pyme_assist_last_briefing'
+      lastBriefing: 'pyme_assist_last_briefing',
+      // Marca de la migración a escucha continua (ver bobMigrateListeningPref).
+      windowMigrated: 'pyme_assist_window_continuous'
     };
     function bobPref(key, fallback) {
       try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
@@ -3595,11 +3598,16 @@ function renderInventoryTable(products) {
     // ---------------------------------------------------------------
     // MODO PASIVO: Bob escucha en segundo plano y responde a "Bob ..."
     // ---------------------------------------------------------------
-    // El reconocimiento continuo del navegador manda audio a un servicio remoto todo el tiempo,
-    // así que en vez de dejarlo abierto indefinidamente se escucha en ventanas cortas
-    // (configurables, 5-30 s) con una pausa entre una y otra. También se pausa mientras Bob
-    // habla, para que no se escuche a sí mismo, y mientras la pestaña está oculta.
-    const BOB_PASSIVE_PAUSE_MS = 1200;
+    // Por defecto la escucha es continua: el micrófono se abre UNA vez y se queda abierto. Antes
+    // se cerraba y se volvía a abrir cada pocos segundos para ahorrar batería, pero eso hacía
+    // parpadear el indicador de micrófono del navegador y del sistema, y dejaba a Bob sordo en
+    // cada corte. Quien prefiera ese ahorro puede elegir bloques de 5-30 s en Configuración.
+    // La escucha sí se detiene mientras Bob habla (para no oírse a sí mismo) y mientras la
+    // pestaña está oculta.
+    // Pausa antes de volver a abrir el micrófono cuando el navegador cierra la sesión de
+    // reconocimiento por su cuenta. Se mantiene corta a propósito: cada reapertura enciende el
+    // indicador de micrófono del navegador y del sistema, y en ese hueco Bob está sordo.
+    const BOB_PASSIVE_PAUSE_MS = 300;
     // El reconocedor en español transcribe "Bob" de varias formas según el micrófono y el acento.
     const BOB_WAKE_RE = /\b(bob|bod|bop|boc|bob's|vob|bap)\b[\s,.:;!?¡¿-]*(.*)$/i;
 
@@ -3614,10 +3622,24 @@ function renderInventoryTable(products) {
     // automático del modo pasivo se aplaza en vez de apagarse (ver bobNoteUserGesture).
     let bobPassiveNeedsGesture = false;
 
+    // 0 = escucha continua: no se corta a propósito, así el micrófono no se enciende y apaga
+    // solo. Un valor de 5-30 s corta cada tantos segundos para ahorrar batería y datos, a costa
+    // de que el indicador de micrófono parpadee y de quedar sordo un instante en cada corte.
     function bobPassiveWindowMs() {
-      const seconds = parseInt(bobPref(ASSIST_KEYS.window, '10'), 10);
-      return (isNaN(seconds) ? 10 : Math.min(30, Math.max(5, seconds))) * 1000;
+      const seconds = parseInt(bobPref(ASSIST_KEYS.window, '0'), 10);
+      if (isNaN(seconds) || seconds <= 0) return 0;
+      return Math.min(30, Math.max(5, seconds)) * 1000;
     }
+
+    // Los dispositivos que ya usaron el modo pasivo tienen guardada una ventana en segundos, que
+    // es justo lo que hacía parpadear el micrófono. Se pasan una sola vez a escucha continua;
+    // si después eligen otra cosa a mano, esa elección se respeta para siempre.
+    function bobMigrateListeningPref() {
+      if (bobPref(ASSIST_KEYS.windowMigrated, '') === '1') return;
+      bobSetPref(ASSIST_KEYS.windowMigrated, '1');
+      bobSetPref(ASSIST_KEYS.window, '0');
+    }
+    bobMigrateListeningPref();
 
     function bobExtractWakeCommand(transcript) {
       const m = (transcript || '').match(BOB_WAKE_RE);
@@ -3707,11 +3729,16 @@ function renderInventoryTable(products) {
         bobPassiveNeedsGesture = false;
         bobClearPassiveTimers();
         bobMarkPassiveIndicator();
-        // Cierra la ventana de escucha a tiempo; onend programa la siguiente tras la pausa.
-        bobWindowTimer = setTimeout(() => {
-          bobWindowTimer = null;
-          try { recognition.stop(); } catch (e) { /* ya estaba detenido */ }
-        }, bobPassiveWindowMs());
+        // En escucha continua (por defecto) no se programa ningún corte: el micrófono queda
+        // abierto de una sola vez y solo se reabre si el navegador cierra la sesión por su
+        // cuenta. Con una ventana elegida, se cierra a tiempo y onend abre la siguiente.
+        const windowMs = bobPassiveWindowMs();
+        if (windowMs > 0) {
+          bobWindowTimer = setTimeout(() => {
+            bobWindowTimer = null;
+            try { recognition.stop(); } catch (e) { /* ya estaba detenido */ }
+          }, windowMs);
+        }
       } catch (e) {
         bobPassiveRunning = false;
         bobSchedulePassiveRestart();
@@ -3963,7 +3990,7 @@ function renderInventoryTable(products) {
       document.getElementById('cfg-assistant-enabled').checked = bobPref(ASSIST_KEYS.enabled, '0') === '1';
       document.getElementById('cfg-assistant-enabled').disabled = !supported;
       document.getElementById('assistant-speech-unsupported').classList.toggle('hidden', supported);
-      document.getElementById('cfg-assistant-window').value = bobPref(ASSIST_KEYS.window, '10');
+      document.getElementById('cfg-assistant-window').value = bobPref(ASSIST_KEYS.window, '0');
       document.getElementById('cfg-assistant-briefing').checked = bobPref(ASSIST_KEYS.briefing, '1') === '1';
       document.getElementById('cfg-assistant-speak').checked = bobVoiceRepliesOn();
       await refreshAssistantKeyStatus();
