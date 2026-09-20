@@ -416,6 +416,7 @@
     #bob-form { display: flex; gap: 0.5rem; padding: 0.6rem; border-top: 1px solid var(--border-subtle); }
     #bob-input { margin: 0; }
     #bob-send { width: auto; margin: 0; padding: 0 0.9rem; }
+    .cfg-hint { font-size: 0.8rem; color: var(--text-muted); margin: 0.2rem 0 0.5rem; line-height: 1.4; }
     #bob-mic { width: auto; margin: 0; padding: 0 0.7rem; background: var(--bg-button-secondary); color: var(--text-primary); border: 1px solid var(--border-subtle); }
     #bob-mic[data-active="true"] { background: rgba(0, 217, 163, 0.25); border-color: var(--accent-profit); color: var(--accent-profit); }
   </style>
@@ -811,6 +812,9 @@
           <button type="button" class="settings-list-item" data-subpage="settings-page-customization">
             <span class="settings-list-icon">🎨</span><span>Personalización</span><span class="settings-list-chevron">›</span>
           </button>
+          <button type="button" class="settings-list-item" data-subpage="settings-page-assistant">
+            <span class="settings-list-icon">🤖</span><span>Asistente</span><span class="settings-list-chevron">›</span>
+          </button>
         </div>
       </div>
 
@@ -881,6 +885,53 @@
           <input type="file" id="cfg-bg-file" accept="image/*" style="margin-top: 0;">
         </div>
         <button type="button" id="btn-remove-bg" class="btn-danger" style="width: auto; margin-top: 0.75rem; padding: 0.5rem 0.8rem; font-size: 0.8rem;">Quitar fondo</button>
+      </div>
+
+      <!-- Asistente (Bob): modo pasivo por voz, voz de respuesta y resumen diario -->
+      <div id="settings-page-assistant" class="settings-subpage card hidden">
+        <h3 style="margin-bottom: 0.75rem;">Asistente (Bob)</h3>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem;">
+          <input type="checkbox" id="cfg-assistant-enabled" style="width: auto; margin: 0;"> Modo pasivo: escuchar "Bob..."
+        </label>
+        <p class="cfg-hint">Bob queda escuchando en segundo plano: solo di <strong>"Bob"</strong> seguido de lo que necesites, sin abrir nada. Requiere permiso de micrófono y funciona en Chrome y Edge.</p>
+        <p id="assistant-speech-unsupported" class="cfg-hint hidden" style="color: var(--accent-expense);">Este navegador no soporta reconocimiento de voz, así que el modo pasivo no está disponible aquí. Bob sigue funcionando por texto.</p>
+
+        <label style="margin-top: 1.2rem;">Ventana de escucha</label>
+        <p class="cfg-hint">Bob escucha por bloques de este tiempo, con una pausa breve entre uno y otro para gastar menos batería y datos. Bloques cortos ahorran más; bloques largos cortan menos las frases.</p>
+        <select id="cfg-assistant-window">
+          <option value="5">5 segundos</option>
+          <option value="10" selected>10 segundos</option>
+          <option value="15">15 segundos</option>
+          <option value="20">20 segundos</option>
+          <option value="30">30 segundos</option>
+        </select>
+
+        <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.2rem;">
+          <input type="checkbox" id="cfg-assistant-briefing" style="width: auto; margin: 0;"> Resumen del día al abrir
+        </label>
+        <p class="cfg-hint">La primera vez que abres la app cada día, Bob te da el resumen: ventas, ganancia, stock bajo y cuentas por cobrar. No se repite el resto del día.</p>
+
+        <hr style="border: none; border-top: 1px solid var(--border-subtle); margin: 1.5rem 0 1rem;">
+        <h4 style="margin-bottom: 0.4rem;">Voz de Bob</h4>
+        <p class="cfg-hint">Por defecto Bob habla con la voz del navegador, que es gratis. Si conectas tu propia cuenta de ElevenLabs puedes elegir entre voces mucho más naturales.</p>
+
+        <label style="margin-top: 1rem;">Voz</label>
+        <select id="cfg-assistant-voice">
+          <option value="">Voz del navegador (gratis)</option>
+        </select>
+        <button type="button" id="btn-test-voice" style="width: auto; margin-top: 0.6rem; padding: 0.5rem 0.9rem; font-size: 0.85rem; background-color: var(--bg-button-secondary); border: 1px solid var(--border-subtle);">▶ Probar voz</button>
+
+        <div class="nav-admin-only" style="margin-top: 1.5rem;">
+          <label>Tu API key de ElevenLabs</label>
+          <p id="assistant-key-status" class="cfg-hint"></p>
+          <input type="password" id="cfg-elevenlabs-key" placeholder="sk_..." autocomplete="off">
+          <p class="cfg-hint">Créala gratis en <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener noreferrer" style="color: var(--accent-profit);">elevenlabs.io → API Keys</a> y pégala aquí. Se guarda en el servidor y nunca vuelve a mostrarse en el navegador: solo se usa para generar la voz.</p>
+          <div style="display: flex; gap: 0.5rem;">
+            <button type="button" id="btn-save-elevenlabs-key" class="btn-primary" style="width: auto; margin: 0; padding: 0.5rem 0.9rem; font-size: 0.85rem;">Guardar clave</button>
+            <button type="button" id="btn-remove-elevenlabs-key" class="btn-danger" style="width: auto; margin: 0; padding: 0.5rem 0.9rem; font-size: 0.85rem;">Quitar</button>
+          </div>
+        </div>
       </div>
 
       <!-- Datos del Negocio -->
@@ -1075,6 +1126,24 @@
     const THEME_STORAGE_KEY = 'pyme_theme';
     const BG_STORAGE_KEY = 'pyme_custom_bg';
     const PENDING_INVITE_KEY = 'pyme_pending_invite';
+
+    // Preferencias del asistente. Van en localStorage (no en la base de datos) porque son de
+    // este dispositivo: el micrófono, la voz y el resumen diario dependen del equipo desde el
+    // que entras, igual que el tema y el fondo de pantalla. La API key de ElevenLabs sí vive en
+    // el servidor, porque es un secreto del negocio y no puede quedar en el navegador.
+    const ASSIST_KEYS = {
+      enabled: 'pyme_assist_enabled',
+      window: 'pyme_assist_window',
+      briefing: 'pyme_assist_briefing',
+      voice: 'pyme_assist_voice',
+      lastBriefing: 'pyme_assist_last_briefing'
+    };
+    function bobPref(key, fallback) {
+      try { const v = localStorage.getItem(key); return v === null ? fallback : v; } catch (e) { return fallback; }
+    }
+    function bobSetPref(key, value) {
+      try { localStorage.setItem(key, value); } catch (e) { /* ignorar */ }
+    }
 
     function applyTheme(mode) {
       if (mode === 'light') {
@@ -1384,6 +1453,7 @@
       document.getElementById('settings-subpage-container').classList.remove('hidden');
       if (id === 'tab-cfg-activity') loadActivityLog();
       if (id === 'settings-page-customization') syncCustomizationSubpage();
+      if (id === 'settings-page-assistant') syncAssistantSubpage();
     }
     function closeSettingsSubpage() {
       document.getElementById('settings-subpage-container').classList.add('hidden');
@@ -1716,6 +1786,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         initEmployeeManagement();
         initInvoices();
         applyLogoToHeader();
+        startAssistant();
         modulesInitialized = true;
       }
     }
@@ -3311,7 +3382,16 @@ function renderInventoryTable(products) {
       { test: t => /\b(quien(es)? me deben?|deudores|cuentas por cobrar|creditos? pendientes?)\b/.test(t), run: () => requestToolCall('getDebtors', {}) },
       { test: t => /\b(mas vendidos?|top productos?|productos? mas vendidos?)\b/.test(t), run: () => requestToolCall('getTopProducts', { period: 'month' }) },
       { test: t => /\b(como va|resumen|que esta pasando)\b.*\bnegocio\b/.test(t), run: () => requestToolCall('getBusinessSummary', {}) },
-      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => requestToolCall('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) }
+      { test: t => /^busca(r)?\s+(.+)/.test(t), run: (t, raw) => requestToolCall('search', { query: raw.replace(/^busca(r)?\s+/i, '') }) },
+      // Frases frecuentes que antes caían en la IA remota: resolverlas aquí las hace instantáneas
+      // y gratis. Van al final para no pisar los patrones más específicos de arriba.
+      { test: t => /\bventas?\b.*\bhoy\b|\bhoy\b.*\bventas?\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'today' }) },
+      { test: t => /\bventas?\b.*\bsemana\b|\bsemana\b.*\bventas?\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'week' }) },
+      { test: t => /\bventas?\b.*\bmes\b|\bmes\b.*\bventas?\b/.test(t), run: () => requestToolCall('getSalesSummary', { period: 'month' }) },
+      { test: t => /\b(como (vamos|voy|va todo)|que tal (vamos|voy|va)|como estamos)\b/.test(t), run: () => requestToolCall('getBusinessSummary', {}) },
+      { test: t => /\b(que|cuanto)\b.*\b(me deben|por cobrar|debe[nm]?)\b/.test(t), run: () => requestToolCall('getDebtors', {}) },
+      { test: t => /\b(se (me )?(acaba|agota)|falta|reponer|queda poco)\b.*\b(stock|producto|inventario)\b/.test(t), run: () => requestToolCall('getLowStockProducts', {}) },
+      { test: t => /\b(que se vende|que vendo)\b.*\b(mas|mejor)\b/.test(t), run: () => requestToolCall('getTopProducts', { period: 'month' }) }
     ];
 
     function runIntentEngine(rawText) {
@@ -3383,6 +3463,10 @@ function renderInventoryTable(products) {
       // Si la pregunta llegó por voz, Bob responde también por voz (bobSpeak controla los
       // estados listening/speaking/idle); si fue texto, solo vuelve a "idle" en silencio.
       if (opts.fromVoice) bobSpeak(result?.say || 'Listo.'); else setTimeout(() => bobSetState('idle'), 900);
+      // Red de seguridad: el modo pasivo se detiene al captar una orden, y normalmente lo
+      // reanuda bobSpeak al terminar de hablar. Si por lo que sea no hubo voz (sin soporte de
+      // síntesis, error al reproducir), este reintento evita que Bob se quede sordo.
+      if (bobPassiveOn) bobSchedulePassiveRestart(1500);
     }
 
     // Fase C: voz. Reconocimiento (STT) y síntesis (TTS) 100% del navegador (Web Speech API) —
@@ -3431,7 +3515,7 @@ function renderInventoryTable(products) {
       const recognition = bobGetRecognition();
       if (!recognition || bobListening) return;
       try {
-        if (bobSpeechOutputSupported()) window.speechSynthesis.cancel(); // no solaparse con una respuesta anterior
+        bobStopSpeaking(); // no solaparse con una respuesta anterior
         bobOpenPanel();
         recognition.start();
         bobListening = true;
@@ -3445,20 +3529,362 @@ function renderInventoryTable(products) {
       if (bobRecognition && bobListening) bobRecognition.stop();
     }
 
-    function bobSpeak(text) {
-      if (!bobSpeechOutputSupported() || !text) { bobSetState('idle'); return; }
+    // ---------------------------------------------------------------
+    // MODO PASIVO: Bob escucha en segundo plano y responde a "Bob ..."
+    // ---------------------------------------------------------------
+    // El reconocimiento continuo del navegador manda audio a un servicio remoto todo el tiempo,
+    // así que en vez de dejarlo abierto indefinidamente se escucha en ventanas cortas
+    // (configurables, 5-30 s) con una pausa entre una y otra. También se pausa mientras Bob
+    // habla, para que no se escuche a sí mismo, y mientras la pestaña está oculta.
+    const BOB_PASSIVE_PAUSE_MS = 1200;
+    // El reconocedor en español transcribe "Bob" de varias formas según el micrófono y el acento.
+    const BOB_WAKE_RE = /\b(bob|bod|bop|boc|bob's|vob|bap)\b[\s,.:;!?¡¿-]*(.*)$/i;
+
+    let bobPassiveOn = false;        // el usuario lo activó en Configuración
+    let bobPassiveRecognition = null;
+    let bobPassiveRunning = false;   // hay una ventana de escucha abierta ahora mismo
+    let bobPassiveSuspended = false; // pausado temporalmente (Bob hablando / pestaña oculta)
+    let bobWindowTimer = null;
+    let bobRestartTimer = null;
+
+    function bobPassiveWindowMs() {
+      const seconds = parseInt(bobPref(ASSIST_KEYS.window, '10'), 10);
+      return (isNaN(seconds) ? 10 : Math.min(30, Math.max(5, seconds))) * 1000;
+    }
+
+    function bobExtractWakeCommand(transcript) {
+      const m = (transcript || '').match(BOB_WAKE_RE);
+      if (!m) return null;
+      return (m[2] || '').trim();
+    }
+
+    function bobClearPassiveTimers() {
+      if (bobWindowTimer) { clearTimeout(bobWindowTimer); bobWindowTimer = null; }
+      if (bobRestartTimer) { clearTimeout(bobRestartTimer); bobRestartTimer = null; }
+    }
+
+    function bobSchedulePassiveRestart(delay = BOB_PASSIVE_PAUSE_MS) {
+      if (!bobPassiveOn || bobRestartTimer) return;
+      bobRestartTimer = setTimeout(() => { bobRestartTimer = null; bobPassiveListen(); }, delay);
+    }
+
+    function bobPassiveListen() {
+      if (!bobPassiveOn || bobPassiveRunning || bobPassiveSuspended) return;
+      if (document.hidden || !bobSpeechInputSupported()) return;
+
+      const recognition = new BobSpeechRecognition();
+      bobPassiveRecognition = recognition;
+      recognition.lang = 'es-ES';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.onresult = (e) => {
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const transcript = e.results[i]?.[0]?.transcript || '';
+          const command = bobExtractWakeCommand(transcript);
+          if (command === null) continue; // no dijeron "Bob": se ignora, no se procesa nada
+          bobStopPassive({ keepEnabled: true });
+          if (command) {
+            bobHandleMessage(command, { fromVoice: true });
+          } else {
+            // Dijeron solo "Bob": Bob contesta y deja el micrófono listo para la orden.
+            bobOpenPanel();
+            bobLog('bob', 'Dime.');
+            bobSpeak('Dime.');
+          }
+          return;
+        }
+      };
+
+      recognition.onerror = (e) => {
+        bobPassiveRunning = false;
+        if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+          // Sin permiso de micrófono el modo pasivo no puede funcionar: se apaga y se avisa,
+          // en vez de reintentar en bucle contra un permiso denegado.
+          bobSetPassiveEnabled(false);
+          bobOpenPanel();
+          bobLog('error', 'No pude acceder al micrófono, así que apagué el modo pasivo. Revisa los permisos del navegador y vuelve a activarlo.');
+          syncAssistantSubpage();
+          return;
+        }
+        bobSchedulePassiveRestart(e.error === 'network' ? 5000 : BOB_PASSIVE_PAUSE_MS);
+      };
+
+      recognition.onend = () => {
+        bobPassiveRunning = false;
+        bobSchedulePassiveRestart();
+      };
+
+      try {
+        recognition.start();
+        bobPassiveRunning = true;
+        bobClearPassiveTimers();
+        // Cierra la ventana de escucha a tiempo; onend programa la siguiente tras la pausa.
+        bobWindowTimer = setTimeout(() => {
+          bobWindowTimer = null;
+          try { recognition.stop(); } catch (e) { /* ya estaba detenido */ }
+        }, bobPassiveWindowMs());
+      } catch (e) {
+        bobPassiveRunning = false;
+        bobSchedulePassiveRestart();
+      }
+    }
+
+    function bobStopPassive({ keepEnabled = false } = {}) {
+      if (!keepEnabled) bobPassiveOn = false;
+      bobClearPassiveTimers();
+      bobPassiveRunning = false;
+      if (bobPassiveRecognition) {
+        try { bobPassiveRecognition.onend = null; bobPassiveRecognition.stop(); } catch (e) { /* ignorar */ }
+        bobPassiveRecognition = null;
+      }
+      if (!keepEnabled) bobSetState('idle');
+    }
+
+    function bobSetPassiveEnabled(enabled) {
+      bobSetPref(ASSIST_KEYS.enabled, enabled ? '1' : '0');
+      if (enabled && bobSpeechInputSupported()) {
+        bobPassiveOn = true;
+        bobPassiveSuspended = false;
+        bobPassiveListen();
+      } else {
+        bobStopPassive();
+      }
+    }
+
+    // Mientras Bob habla el micrófono se apaga; al terminar vuelve solo (si sigue activo).
+    function bobSuspendPassive(suspend) {
+      bobPassiveSuspended = suspend;
+      if (suspend) {
+        bobClearPassiveTimers();
+        bobPassiveRunning = false;
+        if (bobPassiveRecognition) {
+          try { bobPassiveRecognition.onend = null; bobPassiveRecognition.stop(); } catch (e) { /* ignorar */ }
+          bobPassiveRecognition = null;
+        }
+      } else if (bobPassiveOn) {
+        bobSchedulePassiveRestart(400);
+      }
+    }
+
+    // Sin escucha en segundo plano cuando la pestaña no está visible: ahorra batería y datos,
+    // y el navegador corta el reconocimiento en esa situación de todos modos.
+    document.addEventListener('visibilitychange', () => {
+      if (!bobPassiveOn) return;
+      if (document.hidden) bobSuspendPassive(true);
+      else bobSuspendPassive(false);
+    });
+
+    // ---------------------------------------------------------------
+    // VOZ DE RESPUESTA: ElevenLabs (clave del negocio) con la voz del navegador como respaldo
+    // ---------------------------------------------------------------
+    let bobVoiceConfigured = false; // el negocio tiene una API key de ElevenLabs guardada
+    let bobAvailableVoices = [];
+    let bobCurrentAudio = null;
+
+    function bobStopSpeaking() {
+      if (bobCurrentAudio) {
+        try { bobCurrentAudio.pause(); } catch (e) { /* ignorar */ }
+        bobCurrentAudio = null;
+      }
+      if (bobSpeechOutputSupported()) { try { window.speechSynthesis.cancel(); } catch (e) { /* ignorar */ } }
+    }
+
+    async function bobSpeak(text) {
+      if (!text) { bobSetState('idle'); return; }
+      const voiceId = bobPref(ASSIST_KEYS.voice, '');
+      if (voiceId && bobVoiceConfigured) {
+        const ok = await bobSpeakWithElevenLabs(text, voiceId);
+        if (ok) return;
+        // Si ElevenLabs falla (sin créditos, clave inválida, sin red) Bob no se queda mudo.
+      }
+      bobSpeakWithBrowser(text);
+    }
+
+    async function bobSpeakWithElevenLabs(text, voiceId) {
+      try {
+        const { data, error } = await supabase.functions.invoke('bob-voice', {
+          body: { action: 'speak', text: String(text).slice(0, 500), voice_id: voiceId }
+        });
+        // Solo un Blob es audio: si llega un objeto JSON es que la función devolvió un error
+        // (sin clave, sin créditos, clave inválida) y toca caer a la voz del navegador.
+        if (error || !(data instanceof Blob) || !data.size) return false;
+        const blob = data;
+
+        bobStopSpeaking();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        bobCurrentAudio = audio;
+        const finish = () => {
+          URL.revokeObjectURL(url);
+          if (bobCurrentAudio === audio) bobCurrentAudio = null;
+          bobSetState('idle');
+          bobSuspendPassive(false);
+        };
+        audio.onended = finish;
+        audio.onerror = finish;
+        bobSetState('speaking');
+        bobSuspendPassive(true);
+        await audio.play();
+        return true;
+      } catch (e) {
+        console.error('Bob ElevenLabs:', e);
+        bobSuspendPassive(false);
+        return false;
+      }
+    }
+
+    function bobSpeakWithBrowser(text) {
+      if (!bobSpeechOutputSupported()) { bobSetState('idle'); return; }
       try {
         window.speechSynthesis.cancel();
         const utterance = new SpeechSynthesisUtterance(text);
         utterance.lang = 'es-ES';
-        utterance.onstart = () => bobSetState('speaking');
-        utterance.onend = () => bobSetState('idle');
-        utterance.onerror = () => bobSetState('idle');
+        utterance.onstart = () => { bobSetState('speaking'); bobSuspendPassive(true); };
+        utterance.onend = () => { bobSetState('idle'); bobSuspendPassive(false); };
+        utterance.onerror = () => { bobSetState('idle'); bobSuspendPassive(false); };
         window.speechSynthesis.speak(utterance);
       } catch (e) {
         console.error('Bob speech synthesis:', e);
         bobSetState('idle');
+        bobSuspendPassive(false);
       }
+    }
+
+    // ---------------------------------------------------------------
+    // CONFIGURACIÓN → ASISTENTE
+    // ---------------------------------------------------------------
+    // Carga las voces de la cuenta de ElevenLabs del negocio. La clave nunca viaja al navegador:
+    // el Edge Function la lee del servidor y solo devuelve los nombres e IDs de las voces.
+    async function loadAssistantVoices() {
+      const select = document.getElementById('cfg-assistant-voice');
+      const saved = bobPref(ASSIST_KEYS.voice, '');
+      try {
+        const { data, error } = await supabase.functions.invoke('bob-voice', { body: { action: 'list_voices' } });
+        if (error) throw error;
+        bobVoiceConfigured = !!data?.configured;
+        bobAvailableVoices = Array.isArray(data?.voices) ? data.voices : [];
+      } catch (e) {
+        console.error('Bob voces:', e);
+        bobVoiceConfigured = false;
+        bobAvailableVoices = [];
+      }
+
+      select.innerHTML = '<option value="">Voz del navegador (gratis)</option>';
+      bobAvailableVoices.forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v.voice_id;
+        const accent = v.labels?.accent ? ` · ${v.labels.accent}` : '';
+        opt.textContent = `${v.name}${accent}`;
+        select.appendChild(opt);
+      });
+      // Si la voz guardada ya no existe en la cuenta, se vuelve a la del navegador.
+      select.value = bobAvailableVoices.some(v => v.voice_id === saved) ? saved : '';
+      if (select.value !== saved) bobSetPref(ASSIST_KEYS.voice, select.value);
+    }
+
+    async function refreshAssistantKeyStatus() {
+      const status = document.getElementById('assistant-key-status');
+      if (!currentBusinessId) return;
+      try {
+        const { data } = await supabase.rpc('has_elevenlabs_key', { p_business_id: currentBusinessId });
+        bobVoiceConfigured = !!data;
+        status.textContent = data
+          ? '✅ Clave configurada. Tus voces de ElevenLabs aparecen abajo.'
+          : 'Sin clave: Bob usa la voz del navegador.';
+      } catch (e) {
+        status.textContent = '';
+      }
+    }
+
+    async function syncAssistantSubpage() {
+      const supported = bobSpeechInputSupported();
+      document.getElementById('cfg-assistant-enabled').checked = bobPref(ASSIST_KEYS.enabled, '0') === '1';
+      document.getElementById('cfg-assistant-enabled').disabled = !supported;
+      document.getElementById('assistant-speech-unsupported').classList.toggle('hidden', supported);
+      document.getElementById('cfg-assistant-window').value = bobPref(ASSIST_KEYS.window, '10');
+      document.getElementById('cfg-assistant-briefing').checked = bobPref(ASSIST_KEYS.briefing, '1') === '1';
+      await refreshAssistantKeyStatus();
+      await loadAssistantVoices();
+    }
+
+    document.getElementById('cfg-assistant-enabled').addEventListener('change', (e) => {
+      bobSetPassiveEnabled(e.target.checked);
+    });
+    document.getElementById('cfg-assistant-window').addEventListener('change', (e) => {
+      bobSetPref(ASSIST_KEYS.window, e.target.value);
+      // Aplica la ventana nueva de inmediato reiniciando el ciclo de escucha.
+      if (bobPassiveOn) { bobStopPassive({ keepEnabled: true }); bobSchedulePassiveRestart(300); }
+    });
+    document.getElementById('cfg-assistant-briefing').addEventListener('change', (e) => {
+      bobSetPref(ASSIST_KEYS.briefing, e.target.checked ? '1' : '0');
+    });
+    document.getElementById('cfg-assistant-voice').addEventListener('change', (e) => {
+      bobSetPref(ASSIST_KEYS.voice, e.target.value);
+    });
+    document.getElementById('btn-test-voice').onclick = () => {
+      bobSpeak('Hola, soy Bob. Así es como voy a sonar cuando te responda.');
+    };
+    document.getElementById('btn-save-elevenlabs-key').onclick = async () => {
+      const input = document.getElementById('cfg-elevenlabs-key');
+      const key = input.value.trim();
+      if (!key) return alert('Pega tu API key de ElevenLabs primero.');
+      const { error } = await supabase.rpc('save_elevenlabs_key', { p_business_id: currentBusinessId, p_key: key });
+      if (error) return alert('No pude guardar la clave: ' + error.message);
+      input.value = '';
+      await logActivity('Configuró la clave de voz del asistente');
+      await refreshAssistantKeyStatus();
+      await loadAssistantVoices();
+      alert('Clave guardada. Ya puedes elegir una voz.');
+    };
+    document.getElementById('btn-remove-elevenlabs-key').onclick = async () => {
+      if (!confirm('¿Quitar la clave de ElevenLabs? Bob volverá a usar la voz del navegador.')) return;
+      const { error } = await supabase.rpc('delete_elevenlabs_key', { p_business_id: currentBusinessId });
+      if (error) return alert('No pude quitar la clave: ' + error.message);
+      bobSetPref(ASSIST_KEYS.voice, '');
+      await logActivity('Quitó la clave de voz del asistente');
+      await refreshAssistantKeyStatus();
+      await loadAssistantVoices();
+    };
+
+    // ---------------------------------------------------------------
+    // RESUMEN DEL DÍA (solo en la primera apertura de cada día)
+    // ---------------------------------------------------------------
+    async function bobDailyBriefing() {
+      if (bobPref(ASSIST_KEYS.briefing, '1') !== '1') return;
+      const today = new Date().toDateString();
+      if (bobPref(ASSIST_KEYS.lastBriefing, '') === today) return;
+
+      const result = await dispatchTool('getBusinessSummary', {});
+      if (!result || result.isError) return; // p. ej. un empleado sin permiso de dashboard
+      bobSetPref(ASSIST_KEYS.lastBriefing, today);
+
+      bobOpenPanel();
+      bobLog('bob', result.say);
+      bobConversation.push({ role: 'assistant', content: result.say });
+      if (bobPref(ASSIST_KEYS.enabled, '0') === '1') bobSpeak(result.say);
+    }
+
+    // Arranca el asistente tras iniciar sesión: modo pasivo (si está activado) y resumen diario.
+    // El retraso da tiempo a que los módulos terminen de cargar sus datos, porque el resumen se
+    // calcula sobre los mismos snapshots que usa el dashboard.
+    async function startAssistant() {
+      if (bobPref(ASSIST_KEYS.enabled, '0') === '1' && bobSpeechInputSupported()) {
+        bobPassiveOn = true;
+        bobPassiveSuspended = false;
+        bobPassiveListen();
+      }
+      // Si hay una voz de ElevenLabs elegida hay que saber, ya desde el arranque, que el negocio
+      // tiene clave; si no, Bob hablaría con la voz del navegador hasta que alguien abriera
+      // Configuración (que es donde se cargan las voces).
+      if (bobPref(ASSIST_KEYS.voice, '') && currentBusinessId) {
+        try {
+          const { data } = await supabase.rpc('has_elevenlabs_key', { p_business_id: currentBusinessId });
+          bobVoiceConfigured = !!data;
+        } catch (e) { /* sin conexión: se usa la voz del navegador */ }
+      }
+      setTimeout(() => { bobDailyBriefing().catch(e => console.error('Bob resumen diario:', e)); }, 2500);
     }
 
     function bobSetState(state) {
