@@ -59,10 +59,11 @@
       /* Marca: el mismo índigo-violeta de la presentación y el acceso, reservado para lo
          interactivo (botones, foco, navegación activa). El verde/rojo/ámbar de arriba se
          queda exclusivamente para significar dinero (gana, gasta, atención) y no se toca. */
-      --brand-1: #4F3FE0;
-      --brand-2: #8B5CF6;
+      --brand-1: #3323A6;
+      --brand-2: #7C3AED;
+      --brand-3: #D946EF;
       --accent-brand: #8B5CF6;
-      --grad-brand: linear-gradient(120deg, var(--brand-1) 0%, var(--brand-2) 100%);
+      --grad-brand: linear-gradient(120deg, var(--brand-1) 0%, var(--brand-2) 55%, var(--brand-3) 100%);
       --on-brand: #FFFFFF;
       --font-grotesk: 'Manrope', sans-serif;
       --font-inter: 'Inter', sans-serif;
@@ -93,11 +94,19 @@
 
     body {
       background-color: var(--bg-primary);
+      /* El mismo resplandor de la presentación y el acceso, pero apagado: aquí se trabaja
+         un rato largo y el contraste de las tarjetas tiene que seguir mandando. Se apaga
+         del todo en tema claro (ver regla de abajo) y cede ante un fondo propio. */
+      background-image:
+        radial-gradient(900px 560px at 12% -6%, rgba(139, 92, 246, 0.16), transparent 60%),
+        radial-gradient(700px 480px at 105% 8%, rgba(217, 70, 239, 0.1), transparent 55%);
+      background-repeat: no-repeat;
       color: var(--text-primary);
       padding-bottom: 90px;
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
     }
+    :root[data-theme="light"] body { background-image: none; }
 
     .hidden { display: none !important; }
 
@@ -107,8 +116,8 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      border-bottom: 1px solid var(--border-subtle);
-      box-shadow: 0 1px 0 rgba(79, 63, 224, 0.14);
+      border-bottom: 2px solid var(--accent-brand);
+      box-shadow: 0 8px 18px rgba(79, 63, 224, 0.16);
       position: sticky;
       top: 0;
       z-index: 100;
@@ -225,7 +234,12 @@
       75% { transform: translateX(6px); }
     }
 
-    .hero-metric { grid-column: 1 / -1; border-left: 4px solid var(--accent-profit); }
+    .hero-metric {
+      grid-column: 1 / -1;
+      border-left: 4px solid var(--accent-profit);
+      background-image: radial-gradient(420px 220px at 100% 0%, rgba(139, 92, 246, 0.14), transparent 65%);
+      box-shadow: 0 12px 28px rgba(4, 6, 20, 0.28);
+    }
 
     .metrics-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
     @media (min-width: 640px) { .metrics-grid { grid-template-columns: 1fr 1fr; } }
