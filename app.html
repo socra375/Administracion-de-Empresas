@@ -1027,6 +1027,10 @@
     // quita al cerrar sesión, así que la presentación vuelve a verse después de salir — que
     // es cuando de nuevo tiene algo que decir.
     const VISITED_KEY = 'pyme_visited';
+    // Distingue "pulsó Salir" de "abrió la app sin sesión" y de "se le caducó la sesión":
+    // los tres llegan al mismo sitio en onAuthStateChange, pero solo el primero vuelve a
+    // la presentación.
+    let userRequestedLogout = false;
 
     // Dirección pública del sitio: la CARPETA, no este archivo. Los correos de Supabase
     // (confirmación, OAuth) y los links de invitación apuntan aquí a propósito: es la URL
@@ -1579,6 +1583,20 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         document.getElementById('app-header').classList.add('hidden');
         document.getElementById('app-nav').classList.add('hidden');
         modules.forEach(m => m.classList.add('hidden'));
+
+        // Quien acaba de pulsar "Salir" vuelve a la presentación, no se queda en la
+        // pantalla de acceso: al cerrar sesión deja de ser alguien de dentro.
+        //
+        // Solo con el botón, y por eso la bandera: este mismo bloque corre también al
+        // abrir app.html sin sesión (evento INITIAL_SESSION). Reenviar ahí encerraría a
+        // quien llega desde la presentación en un ida y vuelta sin fin, y echaría a la
+        // página de marketing a quien solo quiere entrar. También se queda fuera el caso
+        // de una sesión que caduca sola: ahí la pantalla de acceso es lo útil, no un
+        // folleto.
+        if (userRequestedLogout) {
+          userRequestedLogout = false;
+          window.location.replace('index.html');
+        }
       }
     });
 
@@ -2865,7 +2883,10 @@ function renderInventoryTable(products) {
       }
     }
 
-    document.getElementById('btn-logout').onclick = () => supabase.auth.signOut();
+    document.getElementById('btn-logout').onclick = () => {
+      userRequestedLogout = true;
+      supabase.auth.signOut();
+    };
   </script>
 </body>
 </html>
