@@ -6,17 +6,24 @@
 <title>Gestor de Empresas</title>
 <meta name="description" content="Controla ventas, inventario y cuentas por cobrar desde un solo lugar.">
 <script>
-/* Esta página es la puerta de entrada del sitio, pero solo debe verse la PRIMERA vez.
+/* Esta página es la puerta de entrada del sitio, pero se aparta de quien ya está dentro.
    Va aquí arriba, antes de cualquier estilo o fuente, para que quien deba ir directo a la
    app no llegue a ver un parpadeo de la presentación.
 
-   Se salta la presentación en tres casos:
+   Se salta la presentación en dos casos:
    1. La URL trae ?query o #hash. Ahí viven los links de invitación (?invite=...) y las
       vueltas de Supabase tras confirmar el correo o entrar con Google (#access_token=...).
       Esos enlaces apuntan a la raíz del sitio, así que se reenvían a la app tal cual,
       sin perder un solo carácter.
-   2. Hay una sesión de Supabase guardada en este navegador (su clave es sb-<ref>-auth-token).
-   3. Este dispositivo ya entró antes a la app, que deja la marca pyme_visited.
+   2. Hay sesión abierta en la app, que deja la marca pyme_visited mientras dura y la borra
+      al cerrar sesión. Así la presentación vuelve a verse en cuanto alguien sale, que es
+      cuando de nuevo tiene algo que decir.
+
+   La marca la escribe la app y no se consulta la sesión de Supabase directamente desde
+   aquí: su clave y su formato en localStorage son un detalle interno de la librería, y
+   leerlos mal fallaría justo hacia el lado equivocado (saltarse la presentación con la
+   sesión ya cerrada). Quien tenga sesión abierta de antes verá la presentación una vez;
+   al entrar a la app queda la marca y no se repite.
 
    Para volver a ver la presentación a propósito: añadir ?landing a la dirección. */
 (function () {
@@ -28,18 +35,11 @@
     window.location.replace(APP + search + hash);
     return;
   }
-  var known = false;
+  var logged = false;
   try {
-    if (localStorage.getItem('pyme_visited') === '1') {
-      known = true;
-    } else {
-      for (var i = 0; i < localStorage.length; i++) {
-        var key = localStorage.key(i);
-        if (key && key.indexOf('sb-') === 0 && key.indexOf('-auth-token') > 0) { known = true; break; }
-      }
-    }
+    logged = localStorage.getItem('pyme_visited') === '1';
   } catch (e) { /* navegación privada o almacenamiento bloqueado: se muestra la presentación */ }
-  if (known) window.location.replace(APP);
+  if (logged) window.location.replace(APP);
 })();
 </script>
 <link rel="icon" type="image/svg+xml" href="logo.svg">

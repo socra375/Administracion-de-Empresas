@@ -1022,10 +1022,11 @@
     const THEME_STORAGE_KEY = 'pyme_theme';
     const BG_STORAGE_KEY = 'pyme_custom_bg';
     const PENDING_INVITE_KEY = 'pyme_pending_invite';
-    // Marca de que este dispositivo ya estuvo dentro de la app. index.html (la página de
-    // presentación) la lee para no volver a mostrarse: solo se enseña la primera vez.
+    // Marca de que en este dispositivo hay una sesión abierta. index.html (la página de
+    // presentación) la lee para apartarse y llevar directo a la app. Se pone al entrar y se
+    // quita al cerrar sesión, así que la presentación vuelve a verse después de salir — que
+    // es cuando de nuevo tiene algo que decir.
     const VISITED_KEY = 'pyme_visited';
-    try { localStorage.setItem(VISITED_KEY, '1'); } catch (e) { /* ignorar */ }
 
     // Dirección pública del sitio: la CARPETA, no este archivo. Los correos de Supabase
     // (confirmación, OAuth) y los links de invitación apuntan aquí a propósito: es la URL
@@ -1483,6 +1484,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         const userId = session.user.id;
+        // Antes del corte de abajo: la marca debe ponerse en cada evento con sesión, no solo
+        // la primera vez que se montan los módulos.
+        try { localStorage.setItem(VISITED_KEY, '1'); } catch (e) { /* ignorar */ }
         if (modulesInitialized) return;
 
         // Canjear código de invitación pendiente. Se busca primero en localStorage (guardado
@@ -1564,6 +1568,9 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }, 400);
 
       } else {
+        // Sin sesión: se borra la marca para que la presentación vuelva a aparecer al
+        // entrar por la raíz del sitio.
+        try { localStorage.removeItem(VISITED_KEY); } catch (e) { /* ignorar */ }
         currentBusinessId = null;
         modulesInitialized = false;
         supabase.removeAllChannels();
