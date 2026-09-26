@@ -1,0 +1,2864 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <!-- El link de invitación de empleado trae el código en la URL (?invite=...); sin esto,
+       el navegador reenvía la URL completa como Referer a Google Fonts y a los CDN de abajo. -->
+  <meta name="referrer" content="strict-origin">
+  <title>Sistema de Gestión PYME Multi-usuario</title>
+
+  <!-- Google Fonts: Space Grotesk & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="manifest" href="data:application/manifest+json;utf8,{
+    %22short_name%22:%22MiNegocio%22,
+    %22name%22:%22Sistema%20de%20Gestion%20PYME%22,
+    %22icons%22:[{%22src%22:%22logo-512.png%22,%22type%22:%22image/png%22,%22sizes%22:%22512x512%22}],
+    %22start_url%22:%22app.html%22,
+    %22background_color%22:%22%230B1120%22,
+    %22theme_color%22:%22%23141B2E%22,
+    %22display%22:%22standalone%22,
+    %22orientation%22:%22portrait%22
+  }">
+  <meta name="theme-color" content="#141B2E">
+
+  <!-- Identidad visual. El SVG es el original y escala sin perder nitidez; el PNG es el
+       respaldo para donde no se admite SVG (instalación como app, previsualización al
+       compartir el enlace, navegadores antiguos). -->
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="icon" type="image/png" sizes="512x512" href="logo-512.png">
+  <link rel="apple-touch-icon" href="logo-512.png">
+  <meta property="og:title" content="Gestor de Empresas">
+  <meta property="og:description" content="Ventas, inventario y cuentas por cobrar en un solo lugar.">
+  <meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
+  <meta name="twitter:card" content="summary">
+
+  <!-- Supabase JS v2 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Chart.js, jsPDF y html2canvas -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <style>
+    :root {
+      --bg-primary: #0B1120;
+      --bg-card: #141B2E;
+      --bg-input: #070B14;
+      --bg-button-secondary: #1E2942;
+      --on-accent: #0B1120;
+      --accent-profit: #00D9A3;
+      --accent-expense: #FF5A5F;
+      --accent-recommend: #F5B942;
+      --text-primary: #E8ECF4;
+      --text-muted: #8891A8;
+      --border-subtle: #232B42;
+      --font-grotesk: 'Space Grotesk', sans-serif;
+      --font-inter: 'Inter', sans-serif;
+    }
+
+    /* Tema claro (Personalización > Apariencia). Los colores de acento (verde ganancia,
+       rojo gasto, ámbar recomendación) se mantienen iguales en ambos temas a propósito:
+       muchos badges usan rgba(...) fijo sobre esos mismos tonos. */
+    :root[data-theme="light"] {
+      --bg-primary: #F2F4F9;
+      --bg-card: #FFFFFF;
+      --bg-input: #F5F7FB;
+      --bg-button-secondary: #E7EBF5;
+      --text-primary: #1A2233;
+      --text-muted: #667085;
+      --border-subtle: #DDE3EF;
+    }
+
+    /* Fondo personalizado (Personalización > Fondo): la imagen se aplica sobre el body;
+       header, tarjetas, nav y el panel de Configuración siguen opacos encima. */
+    body.has-custom-bg {
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-inter); }
+
+    body {
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      padding-bottom: 90px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .hidden { display: none !important; }
+
+    header {
+      background-color: var(--bg-card);
+      padding: 1rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    h1, h2, h3, h4, .font-numeric {
+      font-family: var(--font-grotesk);
+      font-weight: 700;
+    }
+
+    .main-content { padding: 1rem; max-width: 900px; margin: 0 auto; }
+
+    .card {
+      background-color: var(--bg-card);
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 1rem;
+    }
+
+    label { display: block; margin-top: 0.75rem; font-size: 0.85rem; color: var(--text-muted); }
+
+    input, select, button {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      margin-top: 0.35rem;
+      border-radius: 8px;
+      border: 1px solid var(--border-subtle);
+      background-color: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 0.95rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus, select:focus { border-color: var(--accent-profit); }
+
+    button {
+      background-color: var(--bg-button-secondary);
+      color: var(--text-primary);
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      margin-top: 0.75rem;
+    }
+
+    button:active { opacity: 0.85; }
+    button.btn-primary { background-color: var(--accent-profit); color: var(--on-accent); }
+    button.btn-danger { background-color: var(--accent-expense); color: #ffffff; }
+
+    .radio-group { display: flex; gap: 0.75rem; margin-top: 0.5rem; }
+
+    .radio-card {
+      flex: 1;
+      padding: 0.85rem;
+      border: 1px solid var(--border-subtle);
+      border-radius: 8px;
+      background-color: var(--bg-input);
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      user-select: none;
+    }
+
+    .radio-card.selected {
+      border-color: var(--accent-profit);
+      background-color: rgba(0, 217, 163, 0.08);
+      color: var(--accent-profit);
+      font-weight: 600;
+    }
+
+    .smooth-collapse {
+      max-height: 0;
+      opacity: 0;
+      overflow: hidden;
+      transition: max-height 0.35s ease, opacity 0.35s ease, margin-top 0.35s ease;
+      margin-top: 0;
+    }
+
+    .smooth-collapse.expanded { max-height: 120px; opacity: 1; margin-top: 0.75rem; }
+    #credit-customer-container.expanded { max-height: 220px; }
+
+    .auth-exit { animation: fadeOutSlide 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+    @keyframes fadeOutSlide { to { opacity: 0; transform: translateY(-20px); } }
+
+    .dashboard-stagger .card-stagger {
+      opacity: 0;
+      transform: translateY(15px);
+      animation: fadeInUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    .dashboard-stagger .card-stagger:nth-child(1) { animation-delay: 0.05s; }
+    .dashboard-stagger .card-stagger:nth-child(2) { animation-delay: 0.15s; }
+    .dashboard-stagger .card-stagger:nth-child(3) { animation-delay: 0.25s; }
+    .dashboard-stagger .card-stagger:nth-child(4) { animation-delay: 0.35s; }
+
+    @keyframes fadeInUp { to { opacity: 1; transform: translateY(0); } }
+
+    .shake { animation: shake 0.3s ease-in-out; }
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-6px); }
+      75% { transform: translateX(6px); }
+    }
+
+    .hero-metric { grid-column: 1 / -1; border-left: 4px solid var(--accent-profit); }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    @media (min-width: 640px) { .metrics-grid { grid-template-columns: 1fr 1fr; } }
+
+    .val-large {
+      font-size: 2.5rem;
+      line-height: 1.1;
+      color: var(--text-primary);
+      margin: 0.3rem 0;
+      letter-spacing: -0.03em;
+    }
+
+    .badge-trend {
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+    }
+    .trend-up { background: rgba(0, 217, 163, 0.15); color: var(--accent-profit); }
+    .trend-down { background: rgba(255, 90, 95, 0.15); color: var(--accent-expense); }
+
+    .ring-container { position: relative; width: 220px; height: 220px; margin: 1rem auto; }
+    .ring-center-text {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+      width: 80%;
+      pointer-events: none;
+    }
+
+    .gauge-card { display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+    .gauge-container { position: relative; width: 100%; max-width: 160px; height: 90px; margin: 0.5rem auto 0 auto; }
+
+    .period-selector { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    .period-btn { padding: 0.4rem 0.8rem; font-size: 0.85rem; margin: 0; background: var(--bg-card); border: 1px solid var(--border-subtle); }
+    .period-btn.active { background: var(--accent-profit); color: var(--on-accent); font-weight: bold; }
+
+    .table-responsive { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
+    th, td { padding: 0.75rem; text-align: left; border-bottom: 1px solid var(--border-subtle); font-size: 0.9rem; }
+    th { color: var(--text-muted); text-transform: none; font-weight: 500; }
+
+    .bottom-nav {
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background-color: var(--bg-card);
+      display: flex;
+      justify-content: space-around;
+      padding: 0.6rem 0;
+      border-top: 1px solid var(--border-subtle);
+      z-index: 100;
+    }
+    .nav-item {
+      background: none; border: none;
+      color: var(--text-muted);
+      display: flex; flex-direction: column; align-items: center;
+      font-size: 0.75rem; margin: 0; padding: 0.2rem; width: auto;
+    }
+    .nav-item.active { color: var(--accent-profit); font-weight: 600; }
+    
+    .badge-status {
+      font-size: 0.75rem;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .status-pendiente { background: rgba(255, 90, 95, 0.2); color: var(--accent-expense); }
+    .status-parcial { background: rgba(245, 185, 66, 0.2); color: var(--accent-recommend); }
+    .status-pagado { background: rgba(0, 217, 163, 0.2); color: var(--accent-profit); }
+
+    /* MENÚ / CONFIGURACIÓN: panel lateral (drawer) */
+    #settings-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 290;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.28s ease;
+    }
+    html:has(#sec-settings.view-module:not(.hidden)) #settings-backdrop {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    #sec-settings.view-module {
+      position: fixed;
+      top: 0; right: 0;
+      width: 88%; max-width: 380px;
+      height: 100%;
+      margin: 0;
+      background-color: var(--bg-card);
+      border-left: 1px solid var(--border-subtle);
+      box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+      z-index: 300;
+      overflow-y: auto;
+      padding: 1.25rem;
+      transform: translateX(0);
+      transition: transform 0.28s ease;
+    }
+    #sec-settings.view-module.hidden {
+      display: block !important;
+      transform: translateX(100%);
+      pointer-events: none;
+    }
+    .settings-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+    #btn-close-settings {
+      background: none; border: none; width: auto; padding: 0.25rem 0.5rem; margin: 0;
+      font-size: 1.3rem; line-height: 1; color: var(--text-muted); cursor: pointer;
+    }
+
+    /* CONFIGURACIÓN: lista estilo iOS con navegación por subpáginas */
+    .settings-list { display: flex; flex-direction: column; }
+    .settings-list-item {
+      display: flex; align-items: center; gap: 0.75rem;
+      background: none; border: none; border-bottom: 1px solid var(--border-subtle);
+      border-radius: 0; width: 100%; margin: 0; padding: 0.9rem 1rem;
+      font-size: 0.95rem; color: var(--text-primary); text-align: left; cursor: pointer;
+    }
+    .settings-list-item:last-child { border-bottom: none; }
+    .settings-list-item:active, .settings-list-item:hover { background: rgba(255, 255, 255, 0.04); }
+    .settings-list-icon { font-size: 1.1rem; width: 1.4rem; text-align: center; flex-shrink: 0; }
+    .settings-list-chevron { margin-left: auto; color: var(--text-muted); font-size: 1.1rem; }
+    #settings-subpage-container { margin-top: 0.5rem; }
+    .settings-back-btn {
+      background: none; border: none; width: auto; margin: 0 0 0.75rem 0; padding: 0.3rem 0;
+      color: var(--accent-profit); font-size: 0.95rem; font-weight: 600; cursor: pointer;
+    }
+    .low-stock-option { background-color: rgba(255, 90, 95, 0.25) !important; color: var(--accent-expense) !important; }
+
+    /* FACTURA: vista previa editable (imagen / PDF) */
+    #modal-invoice {
+      position: fixed; top: 3%; left: 2%; right: 2%; bottom: 3%;
+      z-index: 350; overflow-y: auto;
+      background: var(--bg-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 1rem;
+    }
+    .invoice-modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+    .invoice-modal-header button { width: auto; margin: 0; padding: 0.3rem 0.6rem; }
+    .invoice-modal-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    .invoice-modal-actions button { width: auto; margin: 0; }
+    .invoice-hint { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem; }
+
+    .invoice-paper {
+      background: #ffffff;
+      color: #1a1a1a;
+      padding: 2rem;
+      border-radius: 4px;
+      font-family: var(--font-inter);
+    }
+    .invoice-paper * { color: #1a1a1a; }
+    .invoice-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; border-bottom: 3px solid #1a1a1a; padding-bottom: 1rem; margin-bottom: 1rem; }
+    .invoice-biz img { max-height: 50px; margin-bottom: 0.4rem; }
+    .invoice-biz h2 { font-family: var(--font-grotesk); font-size: 1.3rem; margin-bottom: 0.2rem; }
+    .invoice-biz p { font-size: 0.8rem; margin: 0; line-height: 1.3; }
+    .invoice-meta { text-align: right; }
+    .invoice-meta h1 { font-family: var(--font-grotesk); font-size: 1.8rem; letter-spacing: 2px; margin-bottom: 0.3rem; }
+    .invoice-meta p { font-size: 0.85rem; margin: 0.1rem 0; }
+    .invoice-billto { margin-bottom: 1.25rem; }
+    .invoice-billto h4 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 1px; color: #666; margin-bottom: 0.3rem; }
+    .invoice-paper table { width: 100%; border-collapse: collapse; margin-bottom: 0.75rem; }
+    .invoice-paper th { background: #f0f0f0; text-align: left; font-size: 0.8rem; text-transform: uppercase; padding: 0.5rem; border-bottom: 2px solid #ddd; }
+    .invoice-paper td { padding: 0.5rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+    .invoice-paper td.num, .invoice-paper th.num { text-align: right; }
+    .invoice-totals { margin-left: auto; width: 260px; }
+    .invoice-totals div { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.9rem; }
+    .invoice-totals .total-final { border-top: 2px solid #1a1a1a; font-weight: bold; font-size: 1.05rem; margin-top: 0.3rem; }
+    .invoice-editable { outline: none; border-radius: 3px; }
+    .invoice-editable:hover, .invoice-editable:focus { background: #fff8e1; box-shadow: 0 0 0 1px #f5b942; }
+    .invoice-notes { margin-top: 1.5rem; font-size: 0.85rem; border-top: 1px dashed #ccc; padding-top: 0.75rem; }
+    .btn-remove-item { background: #ff5a5f; color: #fff !important; border: none; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.75rem; width: auto; margin: 0; cursor: pointer; }
+    #btn-invoice-add-row { width: auto; margin: 0 0 1rem 0; padding: 0.3rem 0.7rem; font-size: 0.8rem; background: #eee; color: #1a1a1a; border: 1px solid #ccc; }
+  </style>
+</head>
+<body>
+
+<header id="app-header" class="hidden">
+  <div style="display: flex; align-items: center; gap: 0.6rem;">
+    <img id="header-logo-img" src="logo.svg" alt="Logo" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;">
+    <div>
+      <h2 id="business-display-name" style="font-size: 1.1rem; line-height: 1.1;">Mi Negocio</h2>
+      <div style="display: flex; align-items: center; gap: 0.4rem;">
+        <span id="user-role-badge" style="font-size: 0.75rem; color: var(--accent-profit);">Admin</span>
+        <button id="btn-header-settings" style="background: none; border: none; padding: 0; margin: 0; width: auto; cursor: pointer; font-size: 1rem; line-height: 1; color: var(--text-muted);" title="Menú">⚙️</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+  <main class="main-content">
+    
+    <!-- PANTALLA: LOGIN / REGISTRO -->
+    <section id="auth-screen" class="card">
+      <h2 style="margin-bottom: 0.5rem; font-size: 1.5rem;">Gestión PYME</h2>
+      <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.25rem;">Acceso multi-usuario al panel administrativo.</p>
+      
+      <form id="login-form">
+        <label>Correo Electrónico</label>
+        <input type="email" id="auth-email" placeholder="ejemplo@negocio.com" required>
+        
+        <label>Contraseña</label>
+        <input type="password" id="auth-password" required>
+        
+        <div id="auth-invite-banner" class="hidden" style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(0, 217, 163, 0.08); border: 1px solid var(--accent-profit); border-radius: 8px; font-size: 0.85rem;">
+          ✅ Te invitaron a unirte como <strong>empleado</strong> de un negocio. Completa tus datos para registrarte — no necesitas escribir ningún código.
+          <button type="button" id="btn-clear-invite" style="width: auto; margin: 0.5rem 0 0; padding: 0.2rem 0.5rem; font-size: 0.75rem; background: transparent; border: 1px solid var(--border-subtle);">No soy yo / usar otra cuenta</button>
+        </div>
+
+        <label>¿Tienes un código de invitación de tu empleador? (Opcional)</label>
+        <input type="text" id="auth-invite-code" placeholder="Ej: EMP12345">
+
+        <div id="invite-fullname-container" class="smooth-collapse">
+          <label style="color: var(--accent-profit); font-weight: 600;">Tu nombre completo (Obligatorio)</label>
+          <input type="text" id="auth-employee-name" placeholder="Ej: Juan Pérez">
+        </div>
+        
+        <button type="submit" class="btn-primary">Iniciar Sesión / Registrarse</button>
+      </form>
+      <button id="btn-google-auth" style="background-color: var(--bg-button-secondary); border: 1px solid var(--border-subtle);">Entrar con Google</button>
+    </section>
+
+    <!-- ONBOARDING -->
+    <section id="onboarding-screen" class="card hidden">
+      <h2 style="margin-bottom: 0.25rem; font-size: 1.4rem;">Configuración Inicial</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.25rem;">Personaliza tu empresa antes de comenzar.</p>
+
+      <form id="onboarding-form">
+        <label>Nombre de la Empresa</label>
+        <input type="text" id="onb-business-name" placeholder="Ej: Mi Colmado / Licorería" maxlength="100" required>
+
+        <label>Tipo de Negocio</label>
+        <div class="radio-group">
+          <div class="radio-card selected" data-type="individual">Individual</div>
+          <div class="radio-card" data-type="group">Grupo / Equipo</div>
+        </div>
+
+        <div id="team-size-container" class="smooth-collapse">
+          <label>¿Cuántas personas conforman el equipo?</label>
+          <input type="number" id="onb-team-size" min="1" placeholder="Ej: 3">
+        </div>
+
+        <button type="submit" class="btn-primary" style="margin-top: 1.5rem;">Continuar al Dashboard</button>
+      </form>
+    </section>
+
+    <!-- FORZAR CONTRASEÑA EN ONBOARDING GRUPO -->
+    <div id="modal-forced-password" class="card hidden" style="position: fixed; top: 10%; left: 5%; right: 5%; z-index: 300; border: 2px solid var(--accent-profit);">
+      <h3>Crea tu contraseña obligatoria</h3>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+        Has creado un negocio de tipo "Grupo / Equipo". Para la seguridad de tu negocio y la gestión de empleados, debes definir una contraseña master.
+      </p>
+      <label>Nueva Contraseña Admin</label>
+      <input type="password" id="forced-password-input" placeholder="Mínimo 6 caracteres" required>
+      <button id="btn-save-forced-password" class="btn-primary" style="margin-top: 1rem;">Establecer Contraseña y Entrar</button>
+    </div>
+
+    <!-- MÓDULO: DASHBOARD CIRCULAR -->
+    <section id="sec-dashboard" class="view-module hidden">
+      <div class="period-selector">
+        <button class="period-btn active" data-period="today">Hoy</button>
+        <button class="period-btn" data-period="week">Esta Semana</button>
+        <button class="period-btn" data-period="month">Este Mes</button>
+      </div>
+
+      <div class="metrics-grid dashboard-stagger">
+        <!-- Hero Ring -->
+        <div class="card hero-metric card-stagger">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="color: var(--text-muted); font-size: 0.9rem;">Ganancia Neta vs Ventas</span>
+            <span id="trend-profit" class="badge-trend trend-up">↑ 0%</span>
+          </div>
+          <div class="ring-container">
+            <canvas id="chartHeroRing"></canvas>
+            <div class="ring-center-text">
+              <span style="font-size: 0.75rem; color: var(--text-muted); display: block;">GANANCIA NETA</span>
+              <div id="dash-net-profit" class="val-large font-numeric" style="color: var(--accent-profit); font-size: 1.8rem; margin: 0;">$0.00</div>
+              <span id="dash-profit-ratio" style="font-size: 0.8rem; font-weight: 600; color: var(--text-primary);">0% de ventas</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ventas -->
+        <div class="card gauge-card card-stagger">
+          <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Ventas (Ingresos)</span>
+            <span id="trend-sales" class="badge-trend trend-up">↑ 0%</span>
+          </div>
+          <div class="gauge-container"><canvas id="chartMiniSales"></canvas></div>
+          <div id="dash-gross-sales" class="val-large font-numeric" style="font-size: 1.6rem; margin-top: 0;">$0.00</div>
+        </div>
+
+        <!-- Gastos -->
+        <div class="card gauge-card card-stagger">
+          <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+            <span style="color: var(--text-muted); font-size: 0.85rem;">Costo de Ventas</span>
+            <span id="trend-expenses" class="badge-trend trend-down">↓ 0%</span>
+          </div>
+          <div class="gauge-container"><canvas id="chartMiniExpenses"></canvas></div>
+          <div id="dash-expenses" class="val-large font-numeric" style="font-size: 1.6rem; color: var(--accent-expense); margin-top: 0;">$0.00</div>
+        </div>
+
+        <!-- Métrica Cuentas por Cobrar -->
+        <div class="card card-stagger" style="border-left: 4px solid var(--accent-recommend);">
+          <span style="color: var(--text-muted); font-size: 0.85rem;">Cuentas por Cobrar (Créditos)</span>
+          <div id="dash-receivables" class="val-large font-numeric" style="font-size: 1.8rem; color: var(--accent-recommend);">$0.00</div>
+          <span style="font-size: 0.75rem; color: var(--text-muted);">Saldo pendiente total clientes</span>
+        </div>
+
+        <!-- Créditos Vencidos -->
+        <div class="card card-stagger" style="border-left: 4px solid var(--accent-expense);">
+          <h3>⚠️ Créditos Vencidos</h3>
+          <ul id="dash-overdue-credits-list" style="margin-top: 0.5rem; padding-left: 1.2rem; font-size: 0.9rem;"></ul>
+        </div>
+
+        <!-- Productos Más Vendidos -->
+        <div class="card card-stagger">
+          <h3>Productos Más Vendidos</h3>
+          <ol id="dash-top-products-list" style="margin-top: 0.5rem; padding-left: 1.2rem; font-size: 0.9rem;"></ol>
+        </div>
+
+        <!-- Ventas por Método de Pago -->
+        <div class="card card-stagger">
+          <h3>Ventas por Método de Pago</h3>
+          <div id="dash-payment-breakdown" style="margin-top: 0.5rem; font-size: 0.9rem;"></div>
+        </div>
+
+        <!-- Alertas Stock -->
+        <div class="card hero-metric card-stagger" style="border-left-color: var(--accent-expense);">
+          <h3>Alertas de Stock Bajo</h3>
+          <ul id="dash-low-stock-list" style="margin-top: 0.5rem; padding-left: 1.2rem; color: var(--accent-expense); font-size: 0.9rem;"></ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- MÓDULO: INVENTARIO -->
+    <section id="sec-inventory" class="view-module hidden">
+      <h2>Inventario</h2>
+      <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <button id="btn-show-add-product" class="btn-primary" style="margin: 0;">+ Nuevo Producto</button>
+        <button id="btn-show-inventory-history" style="margin: 0;">📜 Historial</button>
+      </div>
+
+      <form id="product-form" class="card hidden">
+        <h3 id="product-form-title">Guardar Producto</h3>
+        <input type="hidden" id="prod-id">
+        <label>Nombre del Producto</label>
+        <input type="text" id="prod-name" maxlength="150" required>
+        <label>SKU / Código (Opcional)</label>
+        <input type="text" id="prod-sku" placeholder="Ej: BEB-001" maxlength="50">
+        <label>Categoría (Opcional)</label>
+        <input type="text" id="prod-category" list="category-list" placeholder="Ej: Bebidas" maxlength="50">
+        <datalist id="category-list"></datalist>
+        <label>Precio Compra ($)</label>
+        <input type="number" step="0.01" id="prod-cost" placeholder="0.00">
+        <label>Precio Venta ($)</label>
+        <input type="number" step="0.01" id="prod-price" required>
+        <label>Cantidad en Stock</label>
+        <input type="number" id="prod-stock" required>
+        <label>Alerta Stock Mínimo</label>
+        <input type="number" id="prod-min" value="3" required>
+        <button type="submit" class="btn-primary">Guardar Producto</button>
+        <button type="button" id="btn-cancel-product" class="btn-danger">Cancelar</button>
+      </form>
+
+      <input type="text" id="inventory-search" placeholder="Buscar producto..." style="margin-top: 1rem;">
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Producto</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Acción</th></tr>
+          </thead>
+          <tbody id="inventory-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MÓDULO: PUNTO DE VENTA (POS) -->
+    <section id="sec-sales" class="view-module hidden">
+      <h2>Punto de Venta</h2>
+      <div class="card" style="margin-top: 0.5rem;">
+        <label>Seleccionar Producto</label>
+        <select id="sale-product-select"></select>
+        <label>Cantidad</label>
+        <input type="number" id="sale-qty" value="1" min="1">
+        <button id="btn-add-to-cart">Agregar a la Venta</button>
+      </div>
+
+      <div class="card">
+        <h3>Detalle de la Venta</h3>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Producto</th><th>Cant</th><th>Subtotal</th><th></th></tr></thead>
+            <tbody id="cart-table-body"></tbody>
+          </table>
+        </div>
+
+        <h2 style="margin-top: 1rem; text-align: right;" class="font-numeric">Total: $<span id="cart-total">0.00</span></h2>
+        
+        <label>Método de Pago</label>
+        <select id="sale-payment-method">
+          <option value="Efectivo">Efectivo</option>
+          <option value="Transferencia">Transferencia</option>
+          <option value="Tarjeta">Tarjeta</option>
+          <option value="Crédito">Crédito (Cuenta x Cobrar)</option>
+        </select>
+
+        <div id="credit-customer-container" class="smooth-collapse">
+          <label style="color: var(--accent-recommend); font-weight: bold;">Cliente a Fiar (Obligatorio)</label>
+          <select id="sale-customer-select"></select>
+          <label style="color: var(--accent-recommend); font-weight: bold;">Fecha Límite de Pago (Opcional)</label>
+          <input type="date" id="sale-credit-due-date">
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Si la estableces y el cliente paga después de esa fecha, se le sumará automáticamente un 10% de interés por mora.</p>
+        </div>
+        
+        <button id="btn-process-sale" class="btn-primary" style="margin-top: 1rem; padding: 1rem; font-size: 1.1rem;">Completar Venta</button>
+      </div>
+    </section>
+
+    <!-- MÓDULO: CLIENTES Y CRÉDITOS -->
+    <section id="sec-customers" class="view-module hidden">
+      <h2>Clientes y Créditos</h2>
+      <form id="customer-form" class="card" style="margin-top: 0.5rem;">
+        <h3>Registrar Nuevo Cliente</h3>
+        <label>Nombre del Cliente</label>
+        <input type="text" id="cust-name" maxlength="150" required>
+        <label>Teléfono</label>
+        <input type="tel" id="cust-phone" maxlength="30">
+        <button type="submit" class="btn-primary">Guardar Cliente</button>
+      </form>
+
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Nombre</th>
+              <th>Teléfono</th>
+              <th>Saldo Pendiente</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody id="customers-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MODAL HISTORIAL DE MOVIMIENTOS DE INVENTARIO -->
+    <div id="modal-inventory-history" class="card hidden" style="position: fixed; top: 5%; left: 2.5%; right: 2.5%; bottom: 5%; z-index: 250; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3>Historial de Movimientos</h3>
+        <button id="btn-close-inventory-history" style="width: auto; margin:0; padding: 0.3rem 0.6rem;">Cerrar</button>
+      </div>
+      <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">Últimos 100 movimientos: entradas, salidas por venta y ajustes manuales.</p>
+      <div class="table-responsive" style="margin-top: 0.75rem;">
+        <table>
+          <thead><tr><th>Fecha</th><th>Producto</th><th>Tipo</th><th>Cant.</th><th>Antes → Después</th><th>Motivo</th></tr></thead>
+          <tbody id="inventory-history-table-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- MODAL DETALLE DE CUENTA CLIENTE -->
+    <div id="modal-customer-account" class="card hidden" style="position: fixed; top: 5%; left: 2.5%; right: 2.5%; bottom: 5%; z-index: 250; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 id="account-customer-name">Cuenta de Cliente</h3>
+        <button id="btn-close-account" style="width: auto; margin:0; padding: 0.3rem 0.6rem;">Cerrar</button>
+      </div>
+      <p style="color: var(--text-muted); font-size: 0.85rem;" id="account-customer-phone"></p>
+      <h2 style="color: var(--accent-recommend); margin: 0.5rem 0;" class="font-numeric">Pendiente: $<span id="account-total-pending">0.00</span></h2>
+
+      <h4>Créditos Activos / Historial</h4>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Fecha Límite</th>
+              <th>Monto</th>
+              <th>Abonado</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody id="account-credits-list"></tbody>
+        </table>
+      </div>
+
+      <form id="payment-form" style="margin-top: 1rem; border-top: 1px solid var(--border-subtle); padding-top: 1rem;">
+        <h4>Registrar Abono</h4>
+        <label>Seleccionar Crédito Pendiente</label>
+        <select id="payment-credit-select" required></select>
+        
+        <label>Monto a Abonar ($)</label>
+        <input type="number" step="0.01" id="payment-amount" placeholder="0.00" required>
+        
+        <button type="submit" class="btn-primary">Procesar Abono</button>
+      </form>
+    </div>
+
+    <!-- MÓDULO: FACTURAS -->
+    <section id="sec-reports" class="view-module hidden">
+      <h2>Facturas</h2>
+      <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0.5rem 0 1rem;">Cada venta genera automáticamente su factura correspondiente, sin importar el método de pago.</p>
+
+      <div class="card">
+        <h3>Tendencia Histórica de Ventas</h3>
+        <div style="height: 250px; margin-top: 1rem;"><canvas id="salesChart"></canvas></div>
+      </div>
+
+      <div class="card table-responsive">
+        <h3>Historial de Facturas</h3>
+        <table>
+          <thead><tr><th>N° Factura</th><th>Fecha</th><th>Total</th><th>Acción</th></tr></thead>
+          <tbody id="invoices-table-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- MÓDULO: GESTIÓN DE EMPLEADOS (SOLO ADMIN) -->
+    <section id="sec-employees" class="view-module hidden">
+      <h2>Gestión de Empleados</h2>
+      <div class="card" style="margin-top: 0.5rem;">
+        <h3>Invitar Empleado</h3>
+        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">Genera un link de acceso único para registrar nuevos empleados. Al abrirlo, el código queda precargado automáticamente — no hay nada que el empleado deba copiar o recordar. Válido por 7 días y de un solo uso.</p>
+        <button id="btn-generate-invite" class="btn-primary">Generar Link de Invitación</button>
+
+        <div id="invite-code-display" class="hidden" style="margin-top: 1rem; padding: 1rem; background: var(--bg-input); border: 1px dashed var(--accent-profit); text-align: center; border-radius: 8px;">
+          <span style="font-size: 0.8rem; color: var(--text-muted);">Link de invitación (compártelo con tu empleado):</span>
+          <p id="lbl-generated-link" style="color: var(--accent-profit); word-break: break-all; font-size: 0.9rem; margin: 0.4rem 0;"></p>
+          <button id="btn-copy-link" class="btn-primary">Copiar Link</button>
+          <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.6rem;">Código: <strong id="lbl-generated-code"></strong> <button id="btn-copy-code" style="width: auto; margin: 0; padding: 0.15rem 0.5rem; font-size: 0.75rem;">Copiar solo el código</button></p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Lista de Empleados Actuales</h3>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.75rem;">Por defecto un empleado solo ve Ventas, Inventario y Clientes. Activa "Ver Dashboard" o "Ver Facturas" para darle acceso adicional a un empleado en particular. El cambio se aplica la próxima vez que ese empleado inicie sesión.</p>
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Nombre</th><th>Cargo</th><th>Rol</th><th>Ver Dashboard</th><th>Ver Facturas</th><th>Agregado</th><th>Acción</th></tr></thead>
+            <tbody id="employees-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MÓDULO: CONFIGURACIÓN CENTRALIZADA (SOLO ADMIN) -->
+  <div id="settings-backdrop"></div>
+  <section id="sec-settings" class="view-module hidden">
+    <div class="settings-header">
+      <div>
+        <h2 id="settings-title">Menú</h2>
+        <p id="settings-subtitle" style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">Accede a tus módulos.</p>
+      </div>
+      <button id="btn-close-settings" title="Cerrar">✕</button>
+    </div>
+
+    <div id="settings-main-list">
+      <div class="card" style="padding:0;">
+        <div class="settings-list">
+          <button type="button" class="settings-list-item" data-subpage="settings-page-account">
+            <span class="settings-list-icon">👤</span><span>Mi Cuenta</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item" data-subpage="settings-page-customization">
+            <span class="settings-list-icon">🎨</span><span>Personalización</span><span class="settings-list-chevron">›</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card" style="padding:0;">
+        <div class="settings-list">
+          <button type="button" class="settings-list-item menu-link-btn" data-target="sec-sales">
+            <span class="settings-list-icon">🧾</span><span>Ventas</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item menu-link-btn" data-target="sec-inventory">
+            <span class="settings-list-icon">📦</span><span>Inventario</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item menu-link-btn" data-target="sec-customers">
+            <span class="settings-list-icon">👥</span><span>Clientes</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item menu-link-btn nav-admin-only" data-target="sec-reports">
+            <span class="settings-list-icon">🧮</span><span>Facturas</span><span class="settings-list-chevron">›</span>
+          </button>
+        </div>
+      </div>
+
+      <div id="admin-config-section" class="nav-admin-only card" style="padding:0;">
+        <div class="settings-list">
+          <button type="button" class="settings-list-item" data-subpage="tab-cfg-business">
+            <span class="settings-list-icon">🏢</span><span>Datos Negocio</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item" data-subpage="tab-cfg-tax">
+            <span class="settings-list-icon">💱</span><span>Moneda e Impuestos</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item" data-subpage="tab-cfg-payments">
+            <span class="settings-list-icon">💳</span><span>Métodos de Pago</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item" data-subpage="tab-cfg-alerts">
+            <span class="settings-list-icon">📦</span><span>Inventario/Alertas</span><span class="settings-list-chevron">›</span>
+          </button>
+          <button type="button" class="settings-list-item" data-subpage="tab-cfg-activity">
+            <span class="settings-list-icon">📜</span><span>Registro Actividad</span><span class="settings-list-chevron">›</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings-subpage-container" class="hidden">
+      <button type="button" id="btn-settings-subpage-back" class="settings-back-btn">‹ Menú</button>
+
+      <!-- Mi Cuenta -->
+      <div id="settings-page-account" class="settings-subpage card hidden">
+        <h3 style="margin-bottom: 0.75rem;">Mi Cuenta</h3>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="btn-set-password" style="width: auto; margin: 0; padding: 0.5rem 1rem; font-size: 0.85rem; background-color: var(--bg-button-secondary); border: 1px solid var(--border-subtle);">Contraseña</button>
+          <button id="btn-logout" class="btn-danger" style="width: auto; margin: 0; padding: 0.5rem 1rem; font-size: 0.85rem;">Salir</button>
+        </div>
+      </div>
+
+      <!-- Personalización: apariencia (tema) y fondo de pantalla -->
+      <div id="settings-page-customization" class="settings-subpage card hidden">
+        <h3 style="margin-bottom: 0.75rem;">Personalización</h3>
+
+        <label>Tema</label>
+        <div class="radio-group">
+          <div class="radio-card radio-theme selected" data-theme-mode="dark">🌙 Oscuro</div>
+          <div class="radio-card radio-theme" data-theme-mode="light">☀️ Claro</div>
+        </div>
+
+        <label style="margin-top: 1.5rem;">Fondo de pantalla</label>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.2rem 0 0.5rem;">Usa una imagen propia (una foto o una captura de pantalla) como fondo de la app en este dispositivo.</p>
+        <div style="display: flex; gap: 1rem; align-items: center;">
+          <img id="cfg-bg-preview" class="hidden" style="width: 60px; height: 60px; border-radius: 8px; border: 1px solid var(--border-subtle); object-fit: cover;">
+          <input type="file" id="cfg-bg-file" accept="image/*" style="margin-top: 0;">
+        </div>
+        <button type="button" id="btn-remove-bg" class="btn-danger" style="width: auto; margin-top: 0.75rem; padding: 0.5rem 0.8rem; font-size: 0.8rem;">Quitar fondo</button>
+      </div>
+
+      <div id="tab-cfg-business" class="settings-subpage card hidden">
+        <form id="form-cfg-business">
+          <label>Nombre Comercial</label>
+          <input type="text" id="cfg-name" required>
+          <label>Nombre Legal / Razón Social</label>
+          <input type="text" id="cfg-legal-name" placeholder="Ej: Mi Negocio SRL">
+          <label>RNC / Documento Fiscal</label>
+          <input type="text" id="cfg-tax-id" placeholder="Ej: 130-XXXXX-X">
+          <label>Teléfono</label>
+          <input type="tel" id="cfg-phone" placeholder="Ej: 809-555-0000">
+          <label>Dirección</label>
+          <input type="text" id="cfg-address" placeholder="Ej: Av. Principal #12">
+          <label>Logotipo del Negocio</label>
+          <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+            <img id="cfg-logo-preview" src="logo.svg" style="width: 50px; height: 50px; border-radius: 8px; border: 1px solid var(--border-subtle); object-fit: cover;">
+            <input type="file" id="cfg-logo-file" accept="image/*" style="margin-top: 0;">
+            <button type="button" id="btn-remove-logo" class="btn-danger" style="width: auto; margin: 0; padding: 0.5rem 0.8rem; font-size: 0.8rem;">Eliminar</button>
+          </div>
+          <button type="submit" class="btn-primary">Guardar Datos del Negocio</button>
+        </form>
+      </div>
+
+      <!-- Moneda e Impuestos -->
+      <div id="tab-cfg-tax" class="settings-subpage card hidden">
+        <form id="form-cfg-tax">
+          <label>Símbolo de Moneda</label>
+          <select id="cfg-currency-symbol">
+            <option value="$">$ (USD)</option>
+            <option value="RD$">RD$ (DOP)</option>
+            <option value="€">€ (EUR)</option>
+            <option value="MXN$">MXN$ (MXN)</option>
+          </select>
+          <label style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1rem;">
+            <input type="checkbox" id="cfg-tax-enabled" style="width: auto; margin: 0;"> ¿Tu negocio aplica impuestos?
+          </label>
+          <div id="cfg-tax-details" class="smooth-collapse">
+            <label>Porcentaje de Impuesto (%)</label>
+            <input type="number" step="0.01" id="cfg-tax-percentage" placeholder="18">
+            <label>Modo del Impuesto</label>
+            <div class="radio-group">
+              <div class="radio-card radio-tax-mode selected" data-mode="included">Precios ya incluyen impuesto</div>
+              <div class="radio-card radio-tax-mode" data-mode="added">Se suma al vender</div>
+            </div>
+          </div>
+          <button type="submit" class="btn-primary">Guardar Moneda e Impuestos</button>
+        </form>
+      </div>
+
+      <!-- Métodos de Pago -->
+      <div id="tab-cfg-payments" class="settings-subpage card hidden">
+        <form id="form-cfg-payments">
+          <label style="display: flex; align-items: center; justify-content: space-between;">Efectivo <input type="checkbox" id="cfg-pm-efectivo" style="width: auto; margin: 0;" checked></label>
+          <label style="display: flex; align-items: center; justify-content: space-between;">Transferencia <input type="checkbox" id="cfg-pm-transferencia" style="width: auto; margin: 0;" checked></label>
+          <label style="display: flex; align-items: center; justify-content: space-between;">Tarjeta <input type="checkbox" id="cfg-pm-tarjeta" style="width: auto; margin: 0;" checked></label>
+          <label style="display: flex; align-items: center; justify-content: space-between;">Crédito / Fiao <input type="checkbox" id="cfg-pm-credito" style="width: auto; margin: 0;" checked></label>
+          <button type="submit" class="btn-primary">Guardar Métodos de Pago</button>
+        </form>
+      </div>
+
+      <!-- Inventario y Alertas -->
+      <div id="tab-cfg-alerts" class="settings-subpage card hidden">
+        <form id="form-cfg-alerts">
+          <label style="display: flex; align-items: center; justify-content: space-between;">
+            Mostrar alerta visual de stock bajo en el Punto de Venta
+            <input type="checkbox" id="cfg-global-low-stock" style="width: auto; margin: 0;" checked>
+          </label>
+          <button type="submit" class="btn-primary">Guardar Ajustes de Inventario</button>
+        </form>
+      </div>
+
+      <!-- Registro de Actividad -->
+      <div id="tab-cfg-activity" class="settings-subpage card hidden">
+        <div class="table-responsive">
+          <table>
+            <thead><tr><th>Usuario</th><th>Acción</th><th>Fecha/Hora</th></tr></thead>
+            <tbody id="activity-log-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- cierre settings-subpage-container -->
+  </section>
+
+  <!-- MODALES AUXILIARES -->
+  <div id="modal-password" class="card hidden" style="position: fixed; top: 15%; left: 5%; right: 5%; z-index: 200;">
+    <h3>Crear / Vincular Contraseña</h3>
+    <p style="font-size: 0.8rem; color: var(--text-muted);">Escribe una contraseña para acceder con tu correo directo.</p>
+    <label>Nueva Contraseña</label>
+    <input type="password" id="input-new-password" placeholder="Mínimo 6 caracteres">
+    <button id="btn-save-password" class="btn-primary">Guardar Contraseña</button>
+    <button id="btn-close-password" style="background: transparent;">Cancelar</button>
+  </div>
+
+  <!-- FACTURA: vista previa editable, generada como imagen -->
+  <div id="modal-invoice" class="hidden">
+    <div class="invoice-modal-header">
+      <h3 style="margin:0;">Factura</h3>
+      <button id="btn-close-invoice">Cerrar</button>
+    </div>
+    <p class="invoice-hint">Puedes editar cualquier campo (cliente, líneas, notas) antes de descargar.</p>
+
+    <div id="invoice-paper" class="invoice-paper">
+      <div class="invoice-top">
+        <div class="invoice-biz">
+          <img id="inv-biz-logo" class="hidden" alt="Logo">
+          <h2 id="inv-biz-name" class="invoice-editable" contenteditable="true">Mi Negocio</h2>
+          <p id="inv-biz-legal"></p>
+          <p id="inv-biz-address"></p>
+          <p id="inv-biz-phone"></p>
+          <p id="inv-biz-tax"></p>
+        </div>
+        <div class="invoice-meta">
+          <h1>FACTURA</h1>
+          <p><strong>N°:</strong> <span id="inv-number"></span></p>
+          <p><strong>Fecha:</strong> <span id="inv-date"></span></p>
+        </div>
+      </div>
+
+      <div class="invoice-billto">
+        <h4>Facturar a</h4>
+        <p id="inv-customer-name" class="invoice-editable" contenteditable="true">Cliente General</p>
+        <p id="inv-customer-phone" class="invoice-editable" contenteditable="true"></p>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio Unit.</th><th class="num">Importe</th><th></th></tr>
+        </thead>
+        <tbody id="inv-items-body"></tbody>
+      </table>
+      <button type="button" id="btn-invoice-add-row">+ Agregar línea</button>
+
+      <div class="invoice-totals">
+        <div><span>Subtotal</span><span id="inv-subtotal">$0.00</span></div>
+        <div><span>Impuesto</span><span id="inv-tax">$0.00</span></div>
+        <div class="total-final"><span>Total</span><span id="inv-total">$0.00</span></div>
+      </div>
+
+      <div class="invoice-notes">
+        <strong>Notas:</strong>
+        <p id="inv-notes" class="invoice-editable" contenteditable="true">Gracias por su compra.</p>
+      </div>
+    </div>
+
+    <div class="invoice-modal-actions">
+      <button id="btn-download-invoice-png" class="btn-primary">🖼️ Descargar como Imagen</button>
+      <button id="btn-download-invoice-pdf">📄 Descargar PDF</button>
+    </div>
+  </div>
+
+  <nav id="app-nav" class="bottom-nav hidden">
+    <button class="nav-item active nav-admin-only" data-target="sec-dashboard">Dashboard</button>
+    <button class="nav-item nav-admin-only" id="nav-btn-employees" data-target="sec-employees">Empleados</button>
+  </nav>
+
+  <script type="module">
+    // -------------------------------------------------------------
+    // UTILIDADES DE SEGURIDAD
+    // -------------------------------------------------------------
+    // Escapa texto antes de insertarlo en HTML vía innerHTML/template strings. Nombres de
+    // clientes, productos, empleados, etc. vienen de formularios del propio usuario (o de
+    // otro miembro del negocio) y se guardan tal cual en Supabase — sin esto, un nombre como
+    // <img src=x onerror=alert(1)> se ejecutaría al mostrarse en cualquier tabla o factura.
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      }[ch]));
+    }
+
+    // -------------------------------------------------------------
+    // 0. PERSONALIZACIÓN (tema y fondo): preferencia por dispositivo, guardada en
+    // localStorage. Se aplica de inmediato, antes de iniciar Supabase, para que no
+    // haya parpadeo con el tema por defecto.
+    // -------------------------------------------------------------
+    const THEME_STORAGE_KEY = 'pyme_theme';
+    const BG_STORAGE_KEY = 'pyme_custom_bg';
+    const PENDING_INVITE_KEY = 'pyme_pending_invite';
+    // Marca de que este dispositivo ya estuvo dentro de la app. index.html (la página de
+    // presentación) la lee para no volver a mostrarse: solo se enseña la primera vez.
+    const VISITED_KEY = 'pyme_visited';
+    try { localStorage.setItem(VISITED_KEY, '1'); } catch (e) { /* ignorar */ }
+
+    // Dirección pública del sitio: la CARPETA, no este archivo. Los correos de Supabase
+    // (confirmación, OAuth) y los links de invitación apuntan aquí a propósito: es la URL
+    // que ya está en la lista de Redirect URLs permitidas del proyecto, y los enlaces que
+    // se enviaron antes de separar la presentación de la app también apuntan ahí.
+    // index.html reenvía a esta página conservando el ?query y el #hash intactos.
+    function siteBaseUrl() {
+      return window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
+    }
+
+    function applyTheme(mode) {
+      if (mode === 'light') {
+        document.documentElement.setAttribute('data-theme', 'light');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+      }
+      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+      if (themeColorMeta) themeColorMeta.setAttribute('content', mode === 'light' ? '#FFFFFF' : '#141B2E');
+    }
+
+    function applyCustomBackground(dataUrl) {
+      if (dataUrl) {
+        document.body.style.backgroundImage = `url("${dataUrl}")`;
+        document.body.classList.add('has-custom-bg');
+      } else {
+        document.body.style.backgroundImage = '';
+        document.body.classList.remove('has-custom-bg');
+      }
+    }
+
+    try {
+      applyTheme(localStorage.getItem(THEME_STORAGE_KEY) || 'dark');
+      applyCustomBackground(localStorage.getItem(BG_STORAGE_KEY));
+    } catch (e) {
+      console.error('No se pudo aplicar la personalización guardada:', e);
+    }
+
+    // -------------------------------------------------------------
+    // 1. SUPABASE INITIALIZATION
+    // -------------------------------------------------------------
+    const SUPABASE_URL = "https://fiuriowywsjqxujpdzpe.supabase.co";
+    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdXJpb3d5d3NqcXh1anBkenBlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyMzY2NjMsImV4cCI6MjEwMzgxMjY2M30.r8o38yXRF6kezo0gOuylaku8wMOXKR6siiFRP16yhe8";
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // -------------------------------------------------------------
+    // 2. ESTADO GLOBAL
+    // -------------------------------------------------------------
+    let currentBusinessId = null;
+    let currentUserRole = 'admin'; // 'admin' | 'employee'
+    let currentUserPermissions = {}; // permisos adicionales otorgados a un empleado (ver setupRoleInterface)
+    let currentBusinessData = null;
+    let inventorySnapshot = [];
+    let salesHistory = [];
+    let invoicesSnapshot = [];
+    let customersSnapshot = [];
+    let creditsSnapshot = [];
+    let cart = [];
+    let activePeriod = 'today';
+    let selectedBusinessType = 'individual';
+    let heroChartAnimated = false;
+    let modulesInitialized = false;
+
+    let chartHeroRing = null, chartSalesGauge = null, chartExpensesGauge = null, chartReport = null;
+
+    // -------------------------------------------------------------
+    // 3. NAVEGACIÓN Y EVENTOS GENERALES
+    // -------------------------------------------------------------
+    const navButtons = document.querySelectorAll('.nav-item');
+    const modules = document.querySelectorAll('.view-module');
+
+    // Modales/paneles superpuestos que deben cerrarse siempre que el usuario navegue
+    // a otra sección (p. ej. factura abierta desde Ventas, o cuenta de cliente
+    // abierta desde Clientes): antes se quedaban abiertos encima de la nueva sección.
+    const overlayModalIds = ['modal-invoice', 'modal-customer-account', 'modal-inventory-history', 'modal-password'];
+    function closeAllModals() {
+      overlayModalIds.forEach(id => document.getElementById(id)?.classList.add('hidden'));
+    }
+
+    navButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.dataset.target;
+        closeAllModals();
+        modules.forEach(m => m.classList.add('hidden'));
+        navButtons.forEach(b => b.classList.remove('active'));
+
+        document.getElementById(targetId).classList.remove('hidden');
+        btn.classList.add('active');
+      });
+    });
+
+    // Nota: se filtra por [data-type] porque .radio-card es una clase de estilo genérica
+    // que también usan los selectores de modo de impuesto y de tema (Personalización);
+    // sin este filtro, hacer clic en esos otros selectores también dispararía este handler.
+    document.querySelectorAll('.radio-card[data-type]').forEach(card => {
+      card.addEventListener('click', (e) => {
+        document.querySelectorAll('.radio-card[data-type]').forEach(c => c.classList.remove('selected'));
+        const target = e.currentTarget;
+        target.classList.add('selected');
+        selectedBusinessType = target.dataset.type;
+
+        const teamContainer = document.getElementById('team-size-container');
+        if (selectedBusinessType === 'group') {
+          teamContainer.classList.add('expanded');
+          document.getElementById('onb-team-size').required = true;
+        } else {
+          teamContainer.classList.remove('expanded');
+          document.getElementById('onb-team-size').required = false;
+        }
+      });
+    });
+
+    // Selector de Período en Dashboard
+    document.querySelectorAll('.period-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+        e.target.classList.add('active');
+        activePeriod = e.target.dataset.period;
+        calculateFinancialDashboard();
+      });
+    });
+
+    // Mostrar campo de nombre completo si hay código de invitación
+    document.getElementById('auth-invite-code').addEventListener('input', (e) => {
+      const container = document.getElementById('invite-fullname-container');
+      if (e.target.value.trim().length > 0) container.classList.add('expanded');
+      else container.classList.remove('expanded');
+    });
+
+    // Link de invitación (?invite=CODE): precarga y bloquea el código para que un empleado
+    // no pueda registrarse "a medias" sin saberlo. Antes el código era solo texto que el
+    // empleado debía copiar y volver a escribir a mano; si lo olvidaba u omitía, terminaba
+    // registrado como admin de un negocio nuevo y vacío en vez de unirse al de su empleador.
+    (function prefillInviteFromLink() {
+      const linkCode = new URLSearchParams(window.location.search).get('invite');
+      if (!linkCode) return;
+      const codeInput = document.getElementById('auth-invite-code');
+      codeInput.value = linkCode;
+      codeInput.readOnly = true;
+      codeInput.style.opacity = '0.7';
+      document.getElementById('invite-fullname-container').classList.add('expanded');
+      document.getElementById('auth-invite-banner').classList.remove('hidden');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    })();
+
+    document.getElementById('btn-clear-invite').onclick = () => {
+      const codeInput = document.getElementById('auth-invite-code');
+      codeInput.value = '';
+      codeInput.readOnly = false;
+      codeInput.style.opacity = '';
+      document.getElementById('invite-fullname-container').classList.remove('expanded');
+      document.getElementById('auth-invite-banner').classList.add('hidden');
+    };
+
+    // Botón Entrar con Google (handler que faltaba)
+    document.getElementById('btn-google-auth').onclick = async () => {
+      // Si hay un código de invitación cargado (a mano o vía link), debe viajar también en el
+      // login con Google — si no, Google redirige a una URL "limpia" y el empleado termina
+      // registrado como admin de un negocio nuevo en vez de unirse al de su empleador.
+      const inviteCode = document.getElementById('auth-invite-code').value.trim();
+      const employeeName = document.getElementById('auth-employee-name').value.trim();
+
+      if (inviteCode && !employeeName) {
+        alert("Debes escribir tu nombre completo para registrarte con un código de invitación.");
+        return;
+      }
+
+      const baseUrl = siteBaseUrl();
+      let redirectTo = baseUrl;
+      if (inviteCode) {
+        const params = new URLSearchParams({ invite: inviteCode, empname: employeeName });
+        redirectTo = `${baseUrl}?${params.toString()}`;
+        // Respaldo además de la URL: Google/Supabase pueden descartar el query string al
+        // completar el login (p. ej. si la URL exacta no está en la lista de Redirect URLs
+        // permitidas del proyecto), dejando al empleado sin el código al volver. Guardarlo
+        // también en este navegador permite recuperarlo aunque eso pase.
+        try { localStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ code: inviteCode, name: employeeName })); } catch (e) { /* ignorar */ }
+      }
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo }
+      });
+      if (error) alert("Error OAuth: " + error.message);
+    };
+
+    // Modal de Contraseña (handlers que faltaban)
+    document.getElementById('btn-set-password').onclick = () => document.getElementById('modal-password').classList.remove('hidden');
+    document.getElementById('btn-close-password').onclick = () => document.getElementById('modal-password').classList.add('hidden');
+    document.getElementById('btn-save-password').onclick = async () => {
+      const newPassword = document.getElementById('input-new-password').value;
+      if (newPassword.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
+
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) alert("Error al guardar contraseña: " + error.message);
+      else {
+        alert("¡Listo! Ya puedes iniciar sesión con tu correo y esta contraseña.");
+        document.getElementById('modal-password').classList.add('hidden');
+        document.getElementById('input-new-password').value = '';
+      }
+    };
+
+    // Ícono de Configuración (header) -> abre la sección de Configuración
+    document.getElementById('btn-header-settings').onclick = () => {
+      closeAllModals();
+      modules.forEach(m => m.classList.add('hidden'));
+      navButtons.forEach(b => b.classList.remove('active'));
+      document.getElementById('sec-settings').classList.remove('hidden');
+      closeSettingsSubpage();
+
+      if (currentUserRole === 'admin') {
+        document.getElementById('settings-title').textContent = 'Configuración General';
+        document.getElementById('settings-subtitle').textContent = 'Administra los parámetros de tu negocio y accede a los módulos.';
+        loadSettingsIntoForm();
+      } else {
+        document.getElementById('settings-title').textContent = 'Menú';
+        document.getElementById('settings-subtitle').textContent = 'Accede a tus módulos de trabajo.';
+      }
+    };
+
+    // Muestra una sección de módulo (Dashboard, Ventas, Inventario, etc.), ocultando el resto
+    function showModuleSection(id) {
+      const target = document.getElementById(id);
+      if (!target) return;
+      closeAllModals();
+      modules.forEach(m => m.classList.add('hidden'));
+      navButtons.forEach(b => b.classList.remove('active'));
+      target.classList.remove('hidden');
+      const navBtn = document.querySelector(`.nav-item[data-target="${id}"]`);
+      if (navBtn) navBtn.classList.add('active');
+    }
+
+    // Accesos rápidos dentro del Menú/Configuración (Ventas, Inventario, Clientes, Facturas)
+    document.querySelectorAll('.menu-link-btn').forEach(btn => {
+      btn.addEventListener('click', () => showModuleSection(btn.dataset.target));
+    });
+
+    // Atajos de teclado: Ctrl+G Configuración, Shift+I Inventario, Shift+V Ventas,
+    // Shift+F Facturas (solo admin), C luego E Clientes.
+    let pendingChordKey = null;
+    let pendingChordTime = 0;
+
+    document.addEventListener('keydown', (e) => {
+      const activeEl = document.activeElement;
+      const tag = activeEl?.tagName;
+      const isEditableField = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || activeEl?.isContentEditable;
+      if (isEditableField) { pendingChordKey = null; return; }
+      if (document.getElementById('app-header').classList.contains('hidden')) return; // aún sin iniciar sesión
+
+      const key = e.key.toLowerCase();
+
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && key === 'g') {
+        e.preventDefault();
+        document.getElementById('btn-header-settings').click();
+        pendingChordKey = null;
+        return;
+      }
+
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && key === 'i') {
+        e.preventDefault();
+        showModuleSection('sec-inventory');
+        pendingChordKey = null;
+        return;
+      }
+
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && key === 'v') {
+        e.preventDefault();
+        showModuleSection('sec-sales');
+        pendingChordKey = null;
+        return;
+      }
+
+      if (e.shiftKey && !e.ctrlKey && !e.altKey && key === 'f') {
+        e.preventDefault();
+        if (currentUserRole === 'admin' || currentUserPermissions.ver_reportes) showModuleSection('sec-reports');
+        pendingChordKey = null;
+        return;
+      }
+
+      if (!e.ctrlKey && !e.shiftKey && !e.altKey && key === 'e' && pendingChordKey === 'c' && (Date.now() - pendingChordTime) < 800) {
+        e.preventDefault();
+        showModuleSection('sec-customers');
+        pendingChordKey = null;
+        return;
+      }
+
+      if (!e.ctrlKey && !e.shiftKey && !e.altKey && key === 'c') {
+        pendingChordKey = 'c';
+        pendingChordTime = Date.now();
+        return;
+      }
+
+      pendingChordKey = null;
+    });
+
+    // Cerrar el panel lateral de Menú/Configuración (botón ✕ o clic fuera)
+    function closeSettingsPanel() {
+      closeAllModals();
+      document.getElementById('sec-settings').classList.add('hidden');
+      closeSettingsSubpage();
+      modules.forEach(m => m.classList.add('hidden'));
+      navButtons.forEach(b => b.classList.remove('active'));
+      const fallbackId = currentUserRole === 'employee' ? 'sec-sales' : 'sec-dashboard';
+      document.getElementById(fallbackId).classList.remove('hidden');
+      const fallbackNav = document.querySelector(`[data-target="${fallbackId}"]`);
+      if (fallbackNav) fallbackNav.classList.add('active');
+    }
+    document.getElementById('btn-close-settings').onclick = closeSettingsPanel;
+    document.getElementById('settings-backdrop').onclick = closeSettingsPanel;
+
+    // Navegación por subpáginas dentro del Menú/Configuración (estilo Ajustes de iOS)
+    function openSettingsSubpage(id) {
+      document.getElementById('settings-main-list').classList.add('hidden');
+      document.querySelectorAll('#settings-subpage-container .settings-subpage').forEach(el => el.classList.add('hidden'));
+      document.getElementById(id).classList.remove('hidden');
+      document.getElementById('settings-subpage-container').classList.remove('hidden');
+      if (id === 'tab-cfg-activity') loadActivityLog();
+      if (id === 'settings-page-customization') syncCustomizationSubpage();
+    }
+    function closeSettingsSubpage() {
+      document.getElementById('settings-subpage-container').classList.add('hidden');
+      document.getElementById('settings-main-list').classList.remove('hidden');
+    }
+    document.querySelectorAll('#sec-settings [data-subpage]').forEach(btn => {
+      btn.addEventListener('click', () => openSettingsSubpage(btn.dataset.subpage));
+    });
+    document.getElementById('btn-settings-subpage-back').onclick = closeSettingsSubpage;
+
+    // Toggle de detalle de impuesto
+    document.getElementById('cfg-tax-enabled').addEventListener('change', (e) => {
+      const container = document.getElementById('cfg-tax-details');
+      if (e.target.checked) container.classList.add('expanded');
+      else container.classList.remove('expanded');
+    });
+
+    document.querySelectorAll('.radio-tax-mode').forEach(card => {
+      card.addEventListener('click', () => {
+        document.querySelectorAll('.radio-tax-mode').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+      });
+    });
+
+    // Personalización: tema (oscuro/claro)
+    document.querySelectorAll('.radio-theme').forEach(card => {
+      card.addEventListener('click', () => {
+        const mode = card.dataset.themeMode;
+        document.querySelectorAll('.radio-theme').forEach(c => c.classList.remove('selected'));
+        card.classList.add('selected');
+        applyTheme(mode);
+        try { localStorage.setItem(THEME_STORAGE_KEY, mode); } catch (e) { console.error(e); }
+      });
+    });
+
+    // Personalización: fondo de pantalla personalizado
+    function syncCustomizationSubpage() {
+      const savedMode = (() => { try { return localStorage.getItem(THEME_STORAGE_KEY) || 'dark'; } catch (e) { return 'dark'; } })();
+      document.querySelectorAll('.radio-theme').forEach(c => c.classList.toggle('selected', c.dataset.themeMode === savedMode));
+
+      const bgPreview = document.getElementById('cfg-bg-preview');
+      let savedBg = null;
+      try { savedBg = localStorage.getItem(BG_STORAGE_KEY); } catch (e) { /* ignorar */ }
+      if (savedBg) {
+        bgPreview.src = savedBg;
+        bgPreview.classList.remove('hidden');
+      } else {
+        bgPreview.classList.add('hidden');
+      }
+    }
+
+    document.getElementById('cfg-bg-file').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) return alert("Selecciona un archivo de imagen.");
+
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+        const img = new Image();
+        img.onload = () => {
+          // Reducir la imagen a un tamaño manejable antes de guardarla en localStorage,
+          // para no agotar la cuota del navegador con fotos/capturas de alta resolución.
+          const maxDim = 1600;
+          const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+          try {
+            localStorage.setItem(BG_STORAGE_KEY, dataUrl);
+            applyCustomBackground(dataUrl);
+            syncCustomizationSubpage();
+          } catch (err) {
+            alert("No se pudo guardar el fondo: la imagen es demasiado grande para este navegador. Prueba con una imagen más pequeña.");
+          }
+        };
+        img.onerror = () => alert("No se pudo leer la imagen seleccionada.");
+        img.src = readerEvent.target.result;
+      };
+      reader.onerror = () => alert("No se pudo leer el archivo seleccionado.");
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    });
+
+    document.getElementById('btn-remove-bg').onclick = () => {
+      try { localStorage.removeItem(BG_STORAGE_KEY); } catch (e) { console.error(e); }
+      applyCustomBackground(null);
+      syncCustomizationSubpage();
+    };
+
+    // -------------------------------------------------------------
+    // 4. AUTENTICACIÓN, ROLES & REGISTRO DE EMPLEADOS
+    // -------------------------------------------------------------
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = document.getElementById('auth-email').value;
+  const password = document.getElementById('auth-password').value;
+  const inviteCode = document.getElementById('auth-invite-code').value.trim();
+  const employeeName = document.getElementById('auth-employee-name').value.trim();
+
+  if (inviteCode && !employeeName) {
+    alert("Debes escribir tu nombre completo para registrarte con un código de invitación.");
+    return;
+  }
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    const baseUrl = siteBaseUrl();
+    const params = new URLSearchParams();
+    if (inviteCode) {
+      params.set('invite', inviteCode);
+      params.set('empname', employeeName);
+    }
+    const redirectUrl = inviteCode ? `${baseUrl}?${params.toString()}` : baseUrl;
+    if (inviteCode) {
+      try { localStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ code: inviteCode, name: employeeName })); } catch (e) { /* ignorar */ }
+    }
+
+    const { error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectUrl }
+    });
+
+    if (signUpError) {
+      alert("Error de autenticación: " + signUpError.message);
+      return;
+    }
+
+    alert("Registro exitoso. Revisa tu correo (en cualquier dispositivo) para confirmar la cuenta.");
+  }
+});
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        const userId = session.user.id;
+        if (modulesInitialized) return;
+
+        // Canjear código de invitación pendiente. Se busca primero en localStorage (guardado
+        // justo antes de salir hacia Google/el correo de confirmación) porque es más
+        // confiable que la URL: Supabase puede redirigir a una URL "limpia" sin el query
+        // string si la URL exacta no está en su lista de Redirect URLs permitidas. Si no hay
+        // nada en localStorage, se revisa la URL como respaldo (flujo de correo original).
+        let pendingCode = null, pendingName = '';
+        try {
+          const stored = localStorage.getItem(PENDING_INVITE_KEY);
+          if (stored) {
+            const parsed = JSON.parse(stored);
+            pendingCode = parsed.code;
+            pendingName = parsed.name || '';
+          }
+        } catch (e) { /* ignorar */ }
+
+        if (!pendingCode) {
+          const urlParams = new URLSearchParams(window.location.search);
+          pendingCode = urlParams.get('invite');
+          pendingName = urlParams.get('empname') || '';
+        }
+
+        if (pendingCode) {
+          const { data: redeemedBusinessId, error: redeemError } = await supabase.rpc('redeem_invite_code', { input_code: pendingCode, input_employee_name: pendingName });
+          try { localStorage.removeItem(PENDING_INVITE_KEY); } catch (e) { /* ignorar */ }
+          window.history.replaceState({}, document.title, window.location.pathname);
+
+          if (redeemError) {
+            alert("El código de invitación no es válido o ya fue usado: " + redeemError.message);
+          } else if (redeemedBusinessId) {
+            currentBusinessId = redeemedBusinessId;
+            currentUserRole = 'employee';
+          }
+        }
+
+        // Si no se acaba de canjear un código, determinar rol normalmente
+        if (!currentBusinessId) {
+          const { data: memberData } = await supabase
+            .from('business_members')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle();
+
+          if (memberData) {
+            currentBusinessId = memberData.business_id;
+            currentUserRole = memberData.role;
+            currentUserPermissions = memberData.permissions || {};
+          } else {
+            currentBusinessId = userId;
+            currentUserRole = 'admin';
+          }
+        }
+
+        // Cargar Ajustes y Datos de Negocio
+        let { data: bData } = await supabase.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
+        
+        if (!bData && currentUserRole === 'admin') {
+          const { data: newB } = await supabase.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
+          bData = newB;
+        }
+
+        currentBusinessData = bData;
+
+        // Ocultar Pantalla Login
+        document.getElementById('auth-screen').classList.add('auth-exit');
+
+        setTimeout(async () => {
+          document.getElementById('auth-screen').classList.add('hidden');
+          document.getElementById('auth-screen').classList.remove('auth-exit');
+
+          // FLUJO ONBOARDING & ROLES
+          if (currentUserRole === 'admin' && (!currentBusinessData || !currentBusinessData.onboarding_completed)) {
+            document.getElementById('onboarding-screen').classList.remove('hidden');
+          } else {
+            setupRoleInterface();
+            startSystemModules();
+          }
+        }, 400);
+
+      } else {
+        currentBusinessId = null;
+        modulesInitialized = false;
+        supabase.removeAllChannels();
+        document.getElementById('auth-screen').classList.remove('hidden');
+        document.getElementById('onboarding-screen').classList.add('hidden');
+        document.getElementById('app-header').classList.add('hidden');
+        document.getElementById('app-nav').classList.add('hidden');
+        modules.forEach(m => m.classList.add('hidden'));
+      }
+    });
+
+    // Guardar Onboarding (Flujo Modificado)
+    document.getElementById('onboarding-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bName = document.getElementById('onb-business-name').value.trim();
+      const teamSizeVal = parseInt(document.getElementById('onb-team-size').value) || null;
+
+      if (!bName) return alert("Por favor ingresa un nombre.");
+
+      if (selectedBusinessType === 'group') {
+        // Insertar en business_members como admin
+        await supabase.from('business_members').upsert([{
+          business_id: currentBusinessId,
+          user_id: currentBusinessId,
+          role: 'admin'
+        }]);
+
+        // Guardar estado parcial e invocar forzado de contraseña
+        await supabase.from('businesses').upsert({
+          id: currentBusinessId,
+          name: bName,
+          business_type: 'group',
+          team_size: teamSizeVal,
+          onboarding_completed: true
+        });
+
+        document.getElementById('onboarding-screen').classList.add('hidden');
+        document.getElementById('modal-forced-password').classList.remove('hidden');
+      } else {
+        await supabase.from('businesses').upsert({
+          id: currentBusinessId,
+          name: bName,
+          business_type: 'individual',
+          onboarding_completed: true
+        });
+
+        document.getElementById('onboarding-screen').classList.add('hidden');
+        setupRoleInterface();
+        startSystemModules();
+      }
+    });
+
+    // Forzado de Contraseña en Onboarding Grupo
+    document.getElementById('btn-save-forced-password').onclick = async () => {
+      const pass = document.getElementById('forced-password-input').value;
+      if (pass.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
+
+      const { error } = await supabase.auth.updateUser({ password: pass });
+      if (error) return alert("Error guardando contraseña: " + error.message);
+
+      document.getElementById('modal-forced-password').classList.add('hidden');
+      setupRoleInterface();
+      startSystemModules();
+    };
+
+    function setupRoleInterface() {
+      document.getElementById('business-display-name').textContent = currentBusinessData?.name || 'Mi Negocio';
+      document.getElementById('user-role-badge').textContent = currentUserRole === 'admin' ? 'Admin' : 'Empleado';
+
+      document.getElementById('app-header').classList.remove('hidden');
+      modules.forEach(m => m.classList.add('hidden'));
+
+      if (currentUserRole === 'employee') {
+        document.querySelectorAll('.nav-admin-only').forEach(el => el.classList.add('hidden'));
+        document.getElementById('app-nav').classList.add('hidden'); // sin botones admin visibles
+        document.getElementById('sec-sales').classList.remove('hidden');
+
+        // Fase 6: permisos granulares — el admin puede otorgar acceso adicional a un empleado
+        // puntual a secciones que normalmente son solo-admin. Sin nada otorgado, el comportamiento
+        // es exactamente el mismo de siempre (todo lo anterior queda oculto).
+        if (currentUserPermissions.ver_dashboard) {
+          // "Empleados" queda con su clase nav-admin-only intacta (oculta): este permiso
+          // solo otorga el Dashboard, nunca la gestión de otros empleados.
+          document.getElementById('app-nav').classList.remove('hidden');
+          document.querySelector('.nav-item[data-target="sec-dashboard"]').classList.remove('hidden');
+        }
+        if (currentUserPermissions.ver_reportes) {
+          const reportsLink = document.querySelector('.menu-link-btn[data-target="sec-reports"]');
+          if (reportsLink) reportsLink.classList.remove('hidden');
+        }
+      } else {
+        document.querySelectorAll('.nav-admin-only').forEach(el => el.classList.remove('hidden'));
+        document.getElementById('app-nav').classList.remove('hidden');
+        if (currentBusinessData?.business_type !== 'group') {
+          document.getElementById('nav-btn-employees').classList.add('hidden');
+        }
+        document.getElementById('sec-dashboard').classList.remove('hidden');
+        document.querySelector('[data-target="sec-dashboard"]').classList.add('active');
+      }
+    }
+
+    function startSystemModules() {
+      if (!modulesInitialized) {
+        initInventory();
+        initSales();
+        initReports();
+        initCustomersAndCredits();
+        initEmployeeManagement();
+        initInvoices();
+        applyLogoToHeader();
+        modulesInitialized = true;
+      }
+    }
+
+    function applyLogoToHeader() {
+      const logoSrc = currentBusinessData?.logo_url || 'logo.svg';
+      document.getElementById('header-logo-img').src = logoSrc;
+      document.getElementById('cfg-logo-preview').src = logoSrc;
+    }
+
+    // -------------------------------------------------------------
+    // 5. FUNCIONALIDAD 1: CRÉDITOS Y FIADO A CLIENTES
+    // -------------------------------------------------------------
+    async function initCustomersAndCredits() {
+      const loadCustomers = async () => {
+        const { data } = await supabase.from('customers').select('*').eq('business_id', currentBusinessId);
+        if (data) {
+          customersSnapshot = data;
+          populateSalesCustomerSelect();
+          await loadCredits();
+        }
+      };
+
+      await loadCustomers();
+
+      document.getElementById('customer-form').onsubmit = async (e) => {
+        e.preventDefault();
+        await supabase.from('customers').insert([{
+          business_id: currentBusinessId,
+          name: document.getElementById('cust-name').value,
+          phone: document.getElementById('cust-phone').value
+        }]);
+        document.getElementById('customer-form').reset();
+        await loadCustomers();
+      };
+    }
+
+    async function loadCredits() {
+      const { data } = await supabase.from('customer_credits').select('*').eq('business_id', currentBusinessId);
+      if (data) {
+        creditsSnapshot = data;
+        renderCustomersTable();
+        calculateFinancialDashboard();
+      }
+    }
+
+    function renderCustomersTable() {
+      const tbody = document.getElementById('customers-table-body');
+      tbody.innerHTML = '';
+
+      customersSnapshot.forEach(c => {
+        const clientCredits = creditsSnapshot.filter(cr => cr.customer_id === c.id && cr.status !== 'pagado');
+        const pendingTotal = clientCredits.reduce((acc, cr) => acc + (parseFloat(cr.amount) - parseFloat(cr.amount_paid)), 0);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(c.name)}</td>
+          <td>${escapeHtml(c.phone) || 'N/A'}</td>
+          <td class="font-numeric" style="color: ${pendingTotal > 0 ? 'var(--accent-expense)' : 'var(--accent-profit)'}">$${pendingTotal.toFixed(2)}</td>
+          <td><button class="btn-account" data-id="${c.id}" style="padding: 0.2rem 0.5rem; margin:0; font-size:0.8rem;">Ver Cuenta</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.btn-account').forEach(btn => {
+        btn.onclick = (e) => openCustomerAccountModal(e.target.dataset.id);
+      });
+    }
+
+    // Formatea una fecha "YYYY-MM-DD" (sin hora) evitando el corrimiento de zona horaria
+    function formatDateOnly(dateStr) {
+      if (!dateStr) return '—';
+      const [y, m, d] = dateStr.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString();
+    }
+
+    // true si hoy ya pasó la fecha límite (pagar el mismo día cuenta como a tiempo)
+    function isPastDueDate(dueDateStr) {
+      const [y, m, d] = dueDateStr.split('-').map(Number);
+      const due = new Date(y, m - 1, d, 23, 59, 59);
+      return new Date() > due;
+    }
+
+    function openCustomerAccountModal(customerId) {
+      const customer = customersSnapshot.find(c => c.id === customerId);
+      if (!customer) return;
+
+      document.getElementById('account-customer-name').textContent = `Cuenta de ${customer.name}`;
+      document.getElementById('account-customer-phone').textContent = `Tel: ${customer.phone || 'N/A'}`;
+
+      const clientCredits = creditsSnapshot.filter(cr => cr.customer_id === customerId);
+      const pendingTotal = clientCredits.filter(cr => cr.status !== 'pagado')
+        .reduce((acc, cr) => acc + (parseFloat(cr.amount) - parseFloat(cr.amount_paid)), 0);
+
+      document.getElementById('account-total-pending').textContent = pendingTotal.toFixed(2);
+
+      const tbody = document.getElementById('account-credits-list');
+      tbody.innerHTML = '';
+
+      const creditSelect = document.getElementById('payment-credit-select');
+      creditSelect.innerHTML = '';
+
+      clientCredits.forEach(cr => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${new Date(cr.created_at).toLocaleDateString()}</td>
+          <td>${formatDateOnly(cr.due_date)}</td>
+          <td class="font-numeric">$${parseFloat(cr.amount).toFixed(2)}</td>
+          <td class="font-numeric">$${parseFloat(cr.amount_paid).toFixed(2)}</td>
+          <td><span class="badge-status status-${cr.status}">${cr.status.toUpperCase()}</span></td>
+        `;
+        tbody.appendChild(tr);
+
+        if (cr.status !== 'pagado') {
+          const opt = document.createElement('option');
+          opt.value = cr.id;
+          const lateTag = (cr.due_date && !cr.late_fee_applied && isPastDueDate(cr.due_date)) ? ' - ⚠️ Vencido (+10% mora)' : '';
+          opt.textContent = `Crédito ${new Date(cr.created_at).toLocaleDateString()} - Pendiente: $${(parseFloat(cr.amount) - parseFloat(cr.amount_paid)).toFixed(2)}${lateTag}`;
+          creditSelect.appendChild(opt);
+        }
+      });
+
+      document.getElementById('modal-customer-account').classList.remove('hidden');
+
+      // Procesar Abono: valida el monto, recalcula el recargo por mora (si aplica) y
+      // actualiza el crédito dentro de una sola transacción en el servidor con bloqueo de
+      // fila (process_credit_payment), evitando que dos abonos simultáneos al mismo crédito
+      // se pisen entre sí o que el cliente pueda forzar montos inválidos. Luego se genera la
+      // venta/factura correspondiente al abono, igual que antes.
+      document.getElementById('payment-form').onsubmit = async (e) => {
+        e.preventDefault();
+        const creditId = creditSelect.value;
+        const amountToPay = parseFloat(document.getElementById('payment-amount').value);
+
+        if (!creditId || !(amountToPay > 0)) return alert("Monto o crédito inválido.");
+
+        const { data: saleData, error: payErr } = await supabase.rpc('process_credit_payment', {
+          p_business_id: currentBusinessId,
+          p_credit_id: creditId,
+          p_amount: amountToPay
+        });
+        if (payErr) return alert("Error al registrar abono: " + payErr.message);
+
+        const interestAmount = parseFloat(saleData.profit) - parseFloat(saleData.total);
+        const isLate = interestAmount > 0;
+
+        salesHistory.unshift(saleData);
+        const { data: invData, error: invErr } = await createInvoiceForSale(saleData, customerId);
+
+        document.getElementById('payment-amount').value = '';
+        await loadCredits();
+        await loadInvoicesList();
+        openCustomerAccountModal(customerId);
+
+        if (isLate) alert(`Pago recibido después de la fecha límite: se aplicó un recargo por mora del 10% ($${interestAmount.toFixed(2)}).`);
+
+        if (invErr) {
+          alert("Abono registrado, pero hubo un error generando su factura: " + invErr.message);
+        } else if (invData) {
+          openInvoiceModal(invData);
+        } else {
+          alert("Abono registrado correctamente.");
+        }
+      };
+    }
+
+    document.getElementById('btn-close-account').onclick = () => document.getElementById('modal-customer-account').classList.add('hidden');
+
+    function populateSalesCustomerSelect() {
+      const select = document.getElementById('sale-customer-select');
+      select.innerHTML = '<option value="">-- Seleccionar Cliente --</option>';
+      customersSnapshot.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = c.name;
+        select.appendChild(opt);
+      });
+    }
+
+    // Toggle visibilidad del cliente en POS
+    document.getElementById('sale-payment-method').addEventListener('change', (e) => {
+      const container = document.getElementById('credit-customer-container');
+      if (e.target.value === 'Crédito') {
+        container.classList.add('expanded');
+        document.getElementById('sale-customer-select').required = true;
+      } else {
+        container.classList.remove('expanded');
+        document.getElementById('sale-customer-select').required = false;
+      }
+    });
+
+    // -------------------------------------------------------------
+    // 6. VENTAS (POS) INTEGRADO CON CRÉDITO
+    // -------------------------------------------------------------
+    function initSales() {
+      document.getElementById('btn-add-to-cart').onclick = () => {
+        const productId = document.getElementById('sale-product-select').value;
+        const qty = parseInt(document.getElementById('sale-qty').value);
+
+        if (!productId || qty <= 0) return;
+        const product = inventorySnapshot.find(p => p.id === productId);
+        if (!product || qty > product.stock) return alert("Stock insuficiente.");
+
+        const idx = cart.findIndex(i => i.id === productId);
+        if (idx > -1) {
+          if (cart[idx].qty + qty > product.stock) return alert("Excede el stock.");
+          cart[idx].qty += qty;
+          cart[idx].subtotal = cart[idx].qty * parseFloat(product.sale_price);
+        } else {
+          cart.push({
+            id: product.id, name: product.name,
+            cost: parseFloat(product.purchase_price), price: parseFloat(product.sale_price),
+            qty: qty, subtotal: qty * parseFloat(product.sale_price)
+          });
+        }
+        renderCart();
+      };
+
+      document.getElementById('btn-process-sale').onclick = async () => {
+        if (cart.length === 0) return alert("Carrito vacío.");
+
+        const paymentMethod = document.getElementById('sale-payment-method').value;
+        const customerId = document.getElementById('sale-customer-select').value;
+        const creditDueDate = document.getElementById('sale-credit-due-date').value;
+
+        if (paymentMethod === 'Crédito' && !customerId) {
+          return alert("Debe seleccionar un cliente obligatoriamente para procesar ventas a crédito.");
+        }
+
+        // Validar stock disponible de todo el carrito antes de registrar la venta
+        for (const item of cart) {
+          const currentProd = inventorySnapshot.find(p => p.id === item.id);
+          if (!currentProd) {
+            return alert(`El producto "${item.name}" ya no está disponible en el inventario.`);
+          }
+          if (currentProd.stock <= 0) {
+            return alert(`El producto "${item.name}" está agotado.`);
+          }
+          if (item.qty > currentProd.stock) {
+            return alert(`Stock insuficiente para "${item.name}".\n\nDisponible: ${currentProd.stock}\nSolicitado: ${item.qty}`);
+          }
+        }
+
+        const totalAmount = cart.reduce((acc, i) => acc + i.subtotal, 0);
+        const totalCost = cart.reduce((acc, i) => acc + (i.cost * i.qty), 0);
+
+        try {
+          // Venta atómica: valida stock, crea la venta, registra la deuda (si aplica) y
+          // descuenta el inventario dentro de una sola transacción en el servidor, para
+          // evitar condiciones de carrera y escrituras parciales si algo falla a mitad de camino.
+          const { data: saleData, error: saleErr } = await supabase.rpc('process_sale', {
+            p_business_id: currentBusinessId,
+            p_items: cart,
+            p_payment_method: paymentMethod,
+            p_customer_id: paymentMethod === 'Crédito' ? customerId : null,
+            p_credit_due_date: paymentMethod === 'Crédito' ? (creditDueDate || null) : null
+          });
+
+          if (saleErr) throw saleErr;
+
+          populateSalesSelect(inventorySnapshot);
+
+          // Generar automáticamente la factura de la venta, EXCEPTO en ventas a crédito:
+          // esas solo quedan registradas como deuda: la factura se genera cuando el cliente abone.
+          let invData = null, invErr = null;
+          if (paymentMethod !== 'Crédito') {
+            ({ data: invData, error: invErr } = await createInvoiceForSale(saleData, customerId));
+          }
+
+cart = [];
+renderCart();
+document.getElementById('sale-credit-due-date').value = '';
+await loadCredits();
+await logActivity(`Registró una venta por $${totalAmount.toFixed(2)} (${paymentMethod})`);
+
+// 🔧 FIX: refrescar historial de ventas y el selector de facturas
+salesHistory.unshift(saleData);
+calculateFinancialDashboard();
+await loadInvoicesList();
+
+if (paymentMethod === 'Crédito') {
+  alert("Venta a crédito registrada en la cuenta del cliente. Se generará la factura cuando pague.");
+} else if (invErr) {
+  alert(`Venta completada con éxito, pero hubo un error generando la factura: ${invErr.message}`);
+} else {
+  await logActivity(`Generó automáticamente la factura ${invData.invoice_number}`);
+  openInvoiceModal(invData);
+}
+        } catch (err) {
+          alert("Error al procesar la venta: " + err.message);
+        }
+      };
+    }
+
+    // -------------------------------------------------------------
+    // 7. FUNCIONALIDAD 2: GESTIÓN DE EMPLEADOS (ADMIN)
+    // -------------------------------------------------------------
+    // Genera un código de invitación con aleatoriedad criptográfica (no Math.random, que no
+    // es apta para tokens de seguridad) y suficiente longitud para que adivinarlo por fuerza
+    // bruta sea inviable incluso antes de que expire (ver expires_at en employee_invites).
+    function generateSecureInviteCode() {
+      const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin 0/O ni 1/I/L, para evitar confusiones al escribirlo
+      const bytes = crypto.getRandomValues(new Uint8Array(10));
+      let code = 'EMP';
+      bytes.forEach(b => code += alphabet[b % alphabet.length]);
+      return code;
+    }
+
+    function initEmployeeManagement() {
+      document.getElementById('btn-generate-invite').onclick = async () => {
+        const code = generateSecureInviteCode();
+        const { error } = await supabase.from('employee_invites').insert([{
+          business_id: currentBusinessId,
+          code: code
+        }]);
+
+        if (error) alert("Error generando código: " + error.message);
+        else {
+          const link = `${siteBaseUrl()}?invite=${code}`;
+          document.getElementById('lbl-generated-link').textContent = link;
+          document.getElementById('lbl-generated-code').textContent = code;
+          document.getElementById('invite-code-display').classList.remove('hidden');
+          await logActivity(`Generó un link de invitación para empleado`);
+        }
+      };
+
+      document.getElementById('btn-copy-link').onclick = () => {
+        navigator.clipboard.writeText(document.getElementById('lbl-generated-link').textContent);
+        alert("Link copiado al portapapeles. Envíaselo a tu empleado por WhatsApp, correo, etc.");
+      };
+
+      document.getElementById('btn-copy-code').onclick = () => {
+        const code = document.getElementById('lbl-generated-code').textContent;
+        navigator.clipboard.writeText(code);
+        alert("Código copiado al portapapeles.");
+      };
+
+      loadEmployeesList();
+    }
+
+    async function loadEmployeesList() {
+      const { data } = await supabase.from('business_members')
+        .select('*')
+        .eq('business_id', currentBusinessId)
+        .eq('role', 'employee');
+
+      if (data) {
+        const tbody = document.getElementById('employees-table-body');
+        tbody.innerHTML = '';
+        data.forEach(m => {
+          const perms = m.permissions || {};
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><input type="text" class="input-employee-name" data-id="${m.id}" value="${escapeHtml(m.employee_name)}" placeholder="Nombre" maxlength="150" style="margin:0; padding:0.3rem;"></td>
+            <td><input type="text" class="input-role-title" data-id="${m.id}" value="${escapeHtml(m.role_title)}" placeholder="Ej: Cajero" maxlength="50" style="margin:0; padding:0.3rem;"></td>
+            <td><span class="badge-status status-pagado">Empleado</span></td>
+            <td style="text-align:center;"><input type="checkbox" class="chk-perm-dashboard" data-id="${m.id}" ${perms.ver_dashboard ? 'checked' : ''}></td>
+            <td style="text-align:center;"><input type="checkbox" class="chk-perm-reportes" data-id="${m.id}" ${perms.ver_reportes ? 'checked' : ''}></td>
+            <td>${new Date(m.created_at).toLocaleDateString()}</td>
+            <td><button type="button" class="btn-remove-employee btn-danger" data-id="${m.id}" data-name="${escapeHtml(m.employee_name || 'este empleado')}" style="width:auto; margin:0; padding:0.3rem 0.6rem; font-size:0.8rem;">Eliminar</button></td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        tbody.querySelectorAll('.input-employee-name').forEach(input => {
+          input.addEventListener('change', async (e) => {
+            const newName = e.target.value.trim();
+            const oldName = e.target.defaultValue;
+            await supabase.from('business_members').update({ employee_name: newName }).eq('id', e.target.dataset.id);
+            await logActivity(`Cambió el nombre de un empleado a "${newName}"`, {
+              entityType: 'employee', entityId: e.target.dataset.id,
+              oldValues: { Nombre: oldName || '(sin nombre)' }, newValues: { Nombre: newName }
+            });
+            e.target.defaultValue = newName;
+          });
+        });
+
+        tbody.querySelectorAll('.input-role-title').forEach(input => {
+          input.addEventListener('change', async (e) => {
+            const newTitle = e.target.value;
+            const oldTitle = e.target.defaultValue;
+            await supabase.from('business_members').update({ role_title: newTitle }).eq('id', e.target.dataset.id);
+            await logActivity(`Actualizó el cargo de un empleado a "${newTitle}"`, {
+              entityType: 'employee', entityId: e.target.dataset.id,
+              oldValues: { Cargo: oldTitle || '(sin cargo)' }, newValues: { Cargo: newTitle }
+            });
+            e.target.defaultValue = newTitle;
+          });
+        });
+
+        const savePermission = async (id, key, value, label) => {
+          const member = data.find(m => m.id === id);
+          const newPermissions = { ...(member?.permissions || {}), [key]: value };
+          const { error } = await supabase.from('business_members').update({ permissions: newPermissions }).eq('id', id);
+          if (error) {
+            alert("Error al actualizar el permiso: " + error.message);
+            return;
+          }
+          if (member) member.permissions = newPermissions;
+          await logActivity(`${value ? 'Otorgó' : 'Quitó'} el permiso "${label}" a un empleado`, {
+            entityType: 'employee', entityId: id
+          });
+        };
+
+        tbody.querySelectorAll('.chk-perm-dashboard').forEach(chk => {
+          chk.addEventListener('change', (e) => {
+            savePermission(e.target.dataset.id, 'ver_dashboard', e.target.checked, 'Ver Dashboard');
+          });
+        });
+
+        tbody.querySelectorAll('.chk-perm-reportes').forEach(chk => {
+          chk.addEventListener('change', (e) => {
+            savePermission(e.target.dataset.id, 'ver_reportes', e.target.checked, 'Ver Facturas');
+          });
+        });
+
+        tbody.querySelectorAll('.btn-remove-employee').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const id = e.target.dataset.id;
+            const name = e.target.dataset.name;
+            if (!confirm(`¿Eliminar a "${name}" como empleado? Perderá el acceso al negocio.`)) return;
+            const { error } = await supabase.from('business_members').delete().eq('id', id);
+            if (error) return alert("Error al eliminar empleado: " + error.message);
+            await logActivity(`Eliminó al empleado "${name}"`);
+            await loadEmployeesList();
+          });
+        });
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 8. DASHBOARD FINANCIERO Y CÁLCULOS
+    // -------------------------------------------------------------
+    // % de cambio contra el período anterior (ayer, semana pasada, mes pasado)
+    function computeTrendPct(current, previous) {
+      if (previous === 0) return current > 0 ? 100 : 0;
+      return ((current - previous) / previous) * 100;
+    }
+
+    // invert=true para métricas donde subir es malo (ej. gastos)
+    function renderTrendBadge(elementId, pct, invert = false) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      const isIncrease = pct >= 0;
+      const isGood = invert ? !isIncrease : isIncrease;
+      el.classList.toggle('trend-up', isGood);
+      el.classList.toggle('trend-down', !isGood);
+      el.textContent = `${isIncrease ? '↑' : '↓'} ${Math.abs(pct).toFixed(0)}%`;
+    }
+
+    function calculateFinancialDashboard() {
+      const now = new Date();
+      let filteredSales = [];
+      let prevSales = [];
+
+      // Un abono a crédito no es una venta nueva: el ingreso (y la ganancia) ya se contaron
+      // por completo cuando se otorgó el crédito. Si también se suma aquí, la misma plata
+      // queda contada dos veces en Ventas Brutas y Ganancia Neta.
+      const revenueHistory = salesHistory.filter(s => s.payment_method !== 'Abono Crédito');
+
+      revenueHistory.forEach(s => {
+        const d = new Date(s.created_at);
+        if (activePeriod === 'today') {
+          if (d.toDateString() === now.toDateString()) filteredSales.push(s);
+          const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+          if (d.toDateString() === yesterday.toDateString()) prevSales.push(s);
+        } else if (activePeriod === 'week') {
+          const diffDays = Math.ceil(Math.abs(now - d) / (1000 * 60 * 60 * 24));
+          if (diffDays <= 7) filteredSales.push(s);
+          else if (diffDays > 7 && diffDays <= 14) prevSales.push(s);
+        } else if (activePeriod === 'month') {
+          if (d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()) filteredSales.push(s);
+          const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          if (d.getMonth() === prevMonthDate.getMonth() && d.getFullYear() === prevMonthDate.getFullYear()) prevSales.push(s);
+        }
+      });
+
+      const grossSales = filteredSales.reduce((acc, s) => acc + parseFloat(s.total), 0);
+      const netProfit = filteredSales.reduce((acc, s) => acc + parseFloat(s.profit), 0);
+      const expenses = grossSales - netProfit;
+
+      const prevGrossSales = prevSales.reduce((acc, s) => acc + parseFloat(s.total), 0);
+      const prevNetProfit = prevSales.reduce((acc, s) => acc + parseFloat(s.profit), 0);
+      const prevExpenses = prevGrossSales - prevNetProfit;
+
+      renderTrendBadge('trend-sales', computeTrendPct(grossSales, prevGrossSales));
+      renderTrendBadge('trend-profit', computeTrendPct(netProfit, prevNetProfit));
+      renderTrendBadge('trend-expenses', computeTrendPct(expenses, prevExpenses), true);
+
+      // Cálculo Métrica Cuentas por Cobrar
+      const totalReceivables = creditsSnapshot.filter(cr => cr.status !== 'pagado')
+        .reduce((acc, cr) => acc + (parseFloat(cr.amount) - parseFloat(cr.amount_paid)), 0);
+
+      document.getElementById('dash-receivables').textContent = `$${totalReceivables.toFixed(2)}`;
+
+      animateCounter('dash-net-profit', netProfit);
+      document.getElementById('dash-gross-sales').textContent = `$${grossSales.toFixed(2)}`;
+      document.getElementById('dash-expenses').textContent = `$${expenses.toFixed(2)}`;
+
+      const profitRatio = grossSales > 0 ? ((netProfit / grossSales) * 100).toFixed(0) : 0;
+      document.getElementById('dash-profit-ratio').textContent = `${profitRatio}% de ventas`;
+
+      // Tarjetas informativas adicionales del Dashboard (no deben interrumpir el resto si fallan)
+      try { renderOverdueCredits(); } catch (e) { console.error('renderOverdueCredits:', e); }
+      try { renderTopProducts(filterInvoicesByPeriod(invoicesSnapshot, activePeriod)); } catch (e) { console.error('renderTopProducts:', e); }
+      try { renderPaymentBreakdown(filteredSales); } catch (e) { console.error('renderPaymentBreakdown:', e); }
+
+      renderCircularDashboard(grossSales, netProfit, expenses);
+    }
+
+    // Lista los créditos vencidos (fecha límite pasada, aún no pagados en su totalidad)
+    function renderOverdueCredits() {
+      const list = document.getElementById('dash-overdue-credits-list');
+      if (!list) return;
+
+      const overdue = creditsSnapshot.filter(cr => cr.status !== 'pagado' && cr.due_date && isPastDueDate(cr.due_date));
+      if (overdue.length === 0) {
+        list.innerHTML = '<li style="list-style: none; margin-left: -1.2rem; color: var(--text-muted);">Sin créditos vencidos. 🎉</li>';
+        return;
+      }
+      list.innerHTML = overdue.map(cr => {
+        const customer = customersSnapshot.find(c => c.id === cr.customer_id);
+        const pending = parseFloat(cr.amount) - parseFloat(cr.amount_paid);
+        return `<li style="color: var(--accent-expense);">${escapeHtml(customer?.name || 'Cliente')} — $${pending.toFixed(2)} pendiente (venció ${formatDateOnly(cr.due_date)})</li>`;
+      }).join('');
+    }
+
+    // Top 5 productos más vendidos (por cantidad), calculado a partir de las FACTURAS
+    // (no de las ventas crudas) dentro del período activo del Dashboard. Así solo cuenta
+    // lo realmente facturado/cobrado, igual que la Ganancia Neta.
+    function renderTopProducts(invoices) {
+      const list = document.getElementById('dash-top-products-list');
+      if (!list) return;
+
+      const totals = {};
+      invoices.forEach(inv => {
+        (inv.items || []).forEach(item => {
+          if (!item.id) return; // ignora ítems que no son productos del inventario (ej. abonos a crédito)
+          const key = item.name || 'Producto';
+          if (!totals[key]) totals[key] = { qty: 0, revenue: 0 };
+          totals[key].qty += parseFloat(item.qty) || 0;
+          totals[key].revenue += parseFloat(item.subtotal) || 0;
+        });
+      });
+
+      const top = Object.entries(totals).sort((a, b) => b[1].qty - a[1].qty).slice(0, 5);
+      if (top.length === 0) {
+        list.innerHTML = '<li style="list-style: none; margin-left: -1.2rem; color: var(--text-muted);">Sin ventas en este período.</li>';
+        return;
+      }
+      const curr = currentBusinessData?.currency_symbol || '$';
+      list.innerHTML = top.map(([name, t]) => `<li>${escapeHtml(name)} — ${t.qty} uds. (${curr}${t.revenue.toFixed(2)})</li>`).join('');
+    }
+
+    // Desglose de ventas por método de pago dentro del período activo del Dashboard
+    function renderPaymentBreakdown(sales) {
+      const el = document.getElementById('dash-payment-breakdown');
+      if (!el) return;
+
+      const totals = {};
+      sales.forEach(s => {
+        const method = s.payment_method || 'Otro';
+        totals[method] = (totals[method] || 0) + parseFloat(s.total);
+      });
+
+      const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+      if (entries.length === 0) {
+        el.innerHTML = '<p style="color: var(--text-muted); margin:0;">Sin ventas en este período.</p>';
+        return;
+      }
+      const curr = currentBusinessData?.currency_symbol || '$';
+      el.innerHTML = entries.map(([method, total]) => `
+        <div style="display:flex; justify-content:space-between; padding:0.25rem 0; border-bottom: 1px solid var(--border-subtle);">
+          <span>${escapeHtml(method)}</span><span class="font-numeric">${curr}${total.toFixed(2)}</span>
+        </div>
+      `).join('');
+    }
+
+    function animateCounter(elementId, targetVal) {
+      const el = document.getElementById(elementId);
+      if (!el) return;
+      let start = 0;
+      const duration = 1000;
+      const startTime = performance.now();
+
+      function update(currentTime) {
+        const elapsed = currentTime - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        const currentVal = start + (targetVal - start) * progress;
+        el.textContent = `$${currentVal.toFixed(2)}`;
+        if (progress < 1) requestAnimationFrame(update);
+      }
+      requestAnimationFrame(update);
+    }
+
+    function renderCircularDashboard(grossSales, netProfit, expenses) {
+      const shouldAnimate = !heroChartAnimated;
+      const animDuration = shouldAnimate ? 1200 : 0;
+
+      const remainingSales = Math.max(0, grossSales - Math.max(0, netProfit));
+      const heroFill = grossSales > 0 ? [Math.max(0, netProfit), remainingSales] : [0, 100];
+      const heroColors = grossSales > 0 ? ['#00D9A3', '#232B42'] : ['#232B42', '#141B2E'];
+
+      if (chartHeroRing) chartHeroRing.destroy();
+      const ctxRing = document.getElementById('chartHeroRing');
+      if (ctxRing) {
+        chartHeroRing = new Chart(ctxRing, {
+          type: 'doughnut',
+          data: {
+            labels: ['Ganancia Neta', 'Resto de Ventas'],
+            datasets: [{ data: heroFill, backgroundColor: heroColors, borderWidth: 0, borderRadius: 6 }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false, cutout: '82%',
+            plugins: { legend: { display: false } },
+            animation: { duration: animDuration }
+          }
+        });
+      }
+
+      const totalVolume = grossSales + expenses;
+      const salesPct = totalVolume > 0 ? (grossSales / totalVolume) * 100 : 50;
+      const expPct = totalVolume > 0 ? (expenses / totalVolume) * 100 : 50;
+
+      if (chartSalesGauge) chartSalesGauge.destroy();
+      const ctxSales = document.getElementById('chartMiniSales');
+      if (ctxSales) {
+        chartSalesGauge = new Chart(ctxSales, {
+          type: 'doughnut',
+          data: { datasets: [{ data: [salesPct, 100 - salesPct], backgroundColor: ['#3B82F6', '#232B42'], borderWidth: 0, circumference: 180, rotation: 270 }] },
+          options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { display: false } }, animation: { duration: animDuration } }
+        });
+      }
+
+      if (chartExpensesGauge) chartExpensesGauge.destroy();
+      const ctxExpenses = document.getElementById('chartMiniExpenses');
+      if (ctxExpenses) {
+        chartExpensesGauge = new Chart(ctxExpenses, {
+          type: 'doughnut',
+          data: { datasets: [{ data: [expPct, 100 - expPct], backgroundColor: ['#FF5A5F', '#232B42'], borderWidth: 0, circumference: 180, rotation: 270 }] },
+          options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { display: false } }, animation: { duration: animDuration } }
+        });
+      }
+
+      heroChartAnimated = true;
+    }
+
+    // -------------------------------------------------------------
+    // 8b. REGISTRO DE ACTIVIDAD (BITÁCORA)
+    // -------------------------------------------------------------
+    // details opcional: { entityType, entityId, oldValues, newValues } para dejar constancia
+    // de qué cambió exactamente (ej. precio de un producto antes/después).
+    async function logActivity(action, details = {}) {
+      if (!currentBusinessId) return;
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        await supabase.from('activity_log').insert([{
+          business_id: currentBusinessId,
+          user_name: user?.email || 'Desconocido',
+          action: action,
+          entity_type: details.entityType || null,
+          entity_id: details.entityId || null,
+          old_values: details.oldValues || null,
+          new_values: details.newValues || null
+        }]);
+      } catch (e) {
+        console.error('logActivity:', e);
+      }
+    }
+
+    // Arma un texto compacto "campo: antes → después" para los campos que cambiaron
+    function describeChanges(oldValues, newValues) {
+      if (!oldValues || !newValues) return '';
+      const changes = Object.keys(newValues)
+        .filter(k => String(oldValues[k] ?? '') !== String(newValues[k] ?? ''))
+        .map(k => `${escapeHtml(k)}: ${escapeHtml(oldValues[k] ?? '—')} → ${escapeHtml(newValues[k] ?? '—')}`);
+      return changes.length ? ` (${changes.join(', ')})` : '';
+    }
+
+    async function loadActivityLog() {
+      const { data } = await supabase.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30);
+      const tbody = document.getElementById('activity-log-table-body');
+      tbody.innerHTML = '';
+      if (data) {
+        data.forEach(log => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${escapeHtml(log.user_name || 'Sistema')}</td><td>${escapeHtml(log.action)}${describeChanges(log.old_values, log.new_values)}</td><td>${new Date(log.created_at).toLocaleString()}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+    }
+
+    // -------------------------------------------------------------
+    // 8c. CONFIGURACIÓN CENTRALIZADA (ADMIN)
+    // -------------------------------------------------------------
+    function loadSettingsIntoForm() {
+      const b = currentBusinessData || {};
+      document.getElementById('cfg-name').value = b.name || '';
+      document.getElementById('cfg-legal-name').value = b.legal_name || '';
+      document.getElementById('cfg-tax-id').value = b.tax_id || '';
+      document.getElementById('cfg-phone').value = b.phone || '';
+      document.getElementById('cfg-address').value = b.address || '';
+      document.getElementById('cfg-currency-symbol').value = b.currency_symbol || '$';
+
+      const taxEnabled = b.tax_enabled || false;
+      document.getElementById('cfg-tax-enabled').checked = taxEnabled;
+      document.getElementById('cfg-tax-details').classList.toggle('expanded', taxEnabled);
+      document.getElementById('cfg-tax-percentage').value = b.tax_percentage || 0;
+
+      document.querySelectorAll('.radio-tax-mode').forEach(c => c.classList.remove('selected'));
+      const modeSel = b.tax_included_in_price ? 'included' : 'added';
+      document.querySelector(`.radio-tax-mode[data-mode="${modeSel}"]`)?.classList.add('selected');
+
+      const pm = b.payment_methods || { efectivo: true, transferencia: true, tarjeta: true, credito: true };
+      document.getElementById('cfg-pm-efectivo').checked = pm.efectivo !== false;
+      document.getElementById('cfg-pm-transferencia').checked = pm.transferencia !== false;
+      document.getElementById('cfg-pm-tarjeta').checked = pm.tarjeta !== false;
+      document.getElementById('cfg-pm-credito').checked = pm.credito !== false;
+
+      document.getElementById('cfg-global-low-stock').checked = b.global_low_stock_alert !== false;
+
+      document.getElementById('cfg-logo-preview').src = b.logo_url || 'logo.svg';
+      logoMarkedForRemoval = false;
+    }
+
+    let logoMarkedForRemoval = false;
+    document.getElementById('btn-remove-logo').onclick = () => {
+      if (!confirm("¿Eliminar el logotipo actual del negocio?")) return;
+      logoMarkedForRemoval = true;
+      document.getElementById('cfg-logo-file').value = '';
+      document.getElementById('cfg-logo-preview').src = 'logo.svg';
+    };
+
+    document.getElementById('form-cfg-business').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      let logoUrl = logoMarkedForRemoval ? null : (currentBusinessData?.logo_url || null);
+
+      const fileInput = document.getElementById('cfg-logo-file');
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        const fileExt = file.name.split('.').pop();
+        const filePath = `${currentBusinessId}/logo.${fileExt}`;
+        const { error: uploadErr } = await supabase.storage.from('business-logos').upload(filePath, file, { upsert: true });
+        if (uploadErr) {
+          alert("Error subiendo el logo: " + uploadErr.message);
+        } else {
+          const { data: pub } = supabase.storage.from('business-logos').getPublicUrl(filePath);
+          logoUrl = pub.publicUrl;
+        }
+      }
+
+      const updates = {
+        name: document.getElementById('cfg-name').value,
+        legal_name: document.getElementById('cfg-legal-name').value,
+        tax_id: document.getElementById('cfg-tax-id').value,
+        phone: document.getElementById('cfg-phone').value,
+        address: document.getElementById('cfg-address').value,
+        logo_url: logoUrl,
+        updated_at: new Date()
+      };
+
+      const oldData = currentBusinessData || {};
+      const { error } = await supabase.from('businesses').update(updates).eq('id', currentBusinessId);
+      if (error) return alert("Error: " + error.message);
+
+      currentBusinessData = { ...currentBusinessData, ...updates };
+      logoMarkedForRemoval = false;
+      document.getElementById('business-display-name').textContent = updates.name;
+      applyLogoToHeader();
+      await logActivity('Actualizó los datos del negocio', {
+        entityType: 'business', entityId: currentBusinessId,
+        oldValues: { Nombre: oldData.name, 'Nombre Legal': oldData.legal_name, Teléfono: oldData.phone, Dirección: oldData.address },
+        newValues: { Nombre: updates.name, 'Nombre Legal': updates.legal_name, Teléfono: updates.phone, Dirección: updates.address }
+      });
+      alert("Datos del negocio guardados.");
+    });
+
+    document.getElementById('form-cfg-tax').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const isIncluded = document.querySelector('.radio-tax-mode.selected')?.dataset.mode === 'included';
+      const updates = {
+        currency_symbol: document.getElementById('cfg-currency-symbol').value,
+        tax_enabled: document.getElementById('cfg-tax-enabled').checked,
+        tax_percentage: parseFloat(document.getElementById('cfg-tax-percentage').value) || 0,
+        tax_included_in_price: isIncluded,
+        updated_at: new Date()
+      };
+      const { error } = await supabase.from('businesses').update(updates).eq('id', currentBusinessId);
+      if (error) return alert("Error: " + error.message);
+      currentBusinessData = { ...currentBusinessData, ...updates };
+      await logActivity('Actualizó moneda e impuestos');
+      alert("Configuración fiscal guardada.");
+    });
+
+    document.getElementById('form-cfg-payments').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const payment_methods = {
+        efectivo: document.getElementById('cfg-pm-efectivo').checked,
+        transferencia: document.getElementById('cfg-pm-transferencia').checked,
+        tarjeta: document.getElementById('cfg-pm-tarjeta').checked,
+        credito: document.getElementById('cfg-pm-credito').checked
+      };
+      const { error } = await supabase.from('businesses').update({ payment_methods, updated_at: new Date() }).eq('id', currentBusinessId);
+      if (error) return alert("Error: " + error.message);
+      currentBusinessData.payment_methods = payment_methods;
+      await logActivity('Actualizó métodos de pago');
+      alert("Métodos de pago guardados.");
+    });
+
+    document.getElementById('form-cfg-alerts').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const val = document.getElementById('cfg-global-low-stock').checked;
+      const { error } = await supabase.from('businesses').update({ global_low_stock_alert: val, updated_at: new Date() }).eq('id', currentBusinessId);
+      if (error) return alert("Error: " + error.message);
+      currentBusinessData.global_low_stock_alert = val;
+      await logActivity('Actualizó alerta de stock bajo');
+      alert("Ajustes de inventario guardados.");
+    });
+
+    // -------------------------------------------------------------
+    // 8d. MÓDULO DE FACTURAS
+    // -------------------------------------------------------------
+    function initInvoices() {
+      loadInvoicesList();
+    }
+
+    // Calcula impuestos y genera la factura correspondiente a una venta.
+    // Se invoca automáticamente al completar cualquier venta (Efectivo, Tarjeta,
+    // Transferencia o Crédito), garantizando la relación 1:1 Venta-Factura.
+    async function createInvoiceForSale(sale, customerId) {
+      const taxEnabled = currentBusinessData?.tax_enabled;
+      const taxRate = taxEnabled ? (currentBusinessData.tax_percentage / 100) : 0;
+      let subtotal = sale.total;
+      let taxAmount = 0;
+
+      if (taxEnabled) {
+        if (currentBusinessData.tax_included_in_price) {
+          subtotal = sale.total / (1 + taxRate);
+          taxAmount = sale.total - subtotal;
+        } else {
+          taxAmount = sale.total * taxRate;
+        }
+      }
+      const total = subtotal + taxAmount;
+      const invoiceNumber = 'FAC-' + Math.floor(100000 + Math.random() * 900000);
+
+      return supabase.from('invoices').insert([{
+        business_id: currentBusinessId,
+        sale_id: sale.id,
+        customer_id: customerId || null,
+        invoice_number: invoiceNumber,
+        items: sale.items || [],
+        subtotal: subtotal,
+        tax_amount: taxAmount,
+        total: total
+      }]).select().single();
+    }
+
+    async function loadInvoicesList() {
+      const { data } = await supabase.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
+      invoicesSnapshot = data || [];
+      try { renderTopProducts(filterInvoicesByPeriod(invoicesSnapshot, activePeriod)); } catch (e) { console.error('renderTopProducts:', e); }
+
+      const tbody = document.getElementById('invoices-table-body');
+      if (!tbody) return;
+      tbody.innerHTML = '';
+      if (data) {
+        data.forEach(inv => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${escapeHtml(inv.invoice_number)}</td>
+            <td>${new Date(inv.created_at).toLocaleDateString()}</td>
+            <td class="font-numeric">$${parseFloat(inv.total).toFixed(2)}</td>
+            <td><button class="btn-view-invoice" data-id="${inv.id}" style="padding:0.2rem 0.5rem; margin:0; font-size:0.8rem;">Ver</button></td>
+          `;
+          tbody.appendChild(tr);
+        });
+        tbody.querySelectorAll('.btn-view-invoice').forEach(btn => {
+          btn.onclick = (e) => {
+            const inv = data.find(i => i.id === e.target.dataset.id);
+            if (inv) openInvoiceModal(inv);
+          };
+        });
+      }
+    }
+
+    // Filtra facturas por el período activo del Dashboard (Hoy/Semana/Mes), igual que las ventas
+    function filterInvoicesByPeriod(invoices, period) {
+      const now = new Date();
+      return invoices.filter(inv => {
+        const d = new Date(inv.created_at);
+        if (period === 'today') return d.toDateString() === now.toDateString();
+        if (period === 'week') return Math.ceil(Math.abs(now - d) / (1000 * 60 * 60 * 24)) <= 7;
+        if (period === 'month') return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+        return true;
+      });
+    }
+
+    // -------------------------------------------------------------
+    // 8e. FACTURA: vista previa editable, generada como imagen dentro de la web
+    // -------------------------------------------------------------
+    function addInvoiceItemRow(item) {
+      const tbody = document.getElementById('inv-items-body');
+      const tr = document.createElement('tr');
+      const qty = item?.qty ?? 1;
+      const price = item?.price ?? 0;
+      tr.innerHTML = `
+        <td class="invoice-editable" contenteditable="true">${escapeHtml(item?.name)}</td>
+        <td class="num invoice-editable inv-qty" contenteditable="true">${qty}</td>
+        <td class="num invoice-editable inv-price" contenteditable="true">${parseFloat(price).toFixed(2)}</td>
+        <td class="num inv-line-total">0.00</td>
+        <td><button type="button" class="btn-remove-item">✕</button></td>
+      `;
+      tbody.appendChild(tr);
+
+      tr.querySelectorAll('.inv-qty, .inv-price').forEach(cell => {
+        cell.addEventListener('input', recalcInvoiceTotals);
+      });
+      tr.querySelector('.btn-remove-item').onclick = () => { tr.remove(); recalcInvoiceTotals(); };
+      recalcInvoiceTotals();
+    }
+
+    function recalcInvoiceTotals() {
+      let subtotal = 0;
+      document.querySelectorAll('#inv-items-body tr').forEach(tr => {
+        const qty = parseFloat(tr.querySelector('.inv-qty').textContent) || 0;
+        const price = parseFloat(tr.querySelector('.inv-price').textContent) || 0;
+        const lineTotal = qty * price;
+        tr.querySelector('.inv-line-total').textContent = lineTotal.toFixed(2);
+        subtotal += lineTotal;
+      });
+
+      const taxEnabled = currentBusinessData?.tax_enabled;
+      const taxRate = taxEnabled ? (currentBusinessData.tax_percentage / 100) : 0;
+      const taxAmount = subtotal * taxRate;
+      const total = subtotal + taxAmount;
+      const curr = currentBusinessData?.currency_symbol || '$';
+
+      document.getElementById('inv-subtotal').textContent = `${curr}${subtotal.toFixed(2)}`;
+      document.getElementById('inv-tax').textContent = `${curr}${taxAmount.toFixed(2)}`;
+      document.getElementById('inv-total').textContent = `${curr}${total.toFixed(2)}`;
+    }
+
+    function openInvoiceModal(invoice) {
+      const b = currentBusinessData || {};
+
+      document.getElementById('inv-biz-name').textContent = b.name || 'Mi Negocio';
+      document.getElementById('inv-biz-legal').textContent = b.legal_name || '';
+      document.getElementById('inv-biz-address').textContent = b.address || '';
+      document.getElementById('inv-biz-phone').textContent = b.phone ? `Tel: ${b.phone}` : '';
+      document.getElementById('inv-biz-tax').textContent = b.tax_id ? `RNC/Tax ID: ${b.tax_id}` : '';
+      const logoImg = document.getElementById('inv-biz-logo');
+      if (b.logo_url) { logoImg.src = b.logo_url; logoImg.classList.remove('hidden'); }
+      else { logoImg.classList.add('hidden'); }
+
+      document.getElementById('inv-number').textContent = invoice.invoice_number;
+      document.getElementById('inv-date').textContent = new Date(invoice.created_at).toLocaleDateString();
+
+      const customer = customersSnapshot.find(c => c.id === invoice.customer_id);
+      document.getElementById('inv-customer-name').textContent = customer?.name || 'Cliente General';
+      document.getElementById('inv-customer-phone').textContent = customer?.phone || '';
+
+      document.getElementById('inv-items-body').innerHTML = '';
+      if (invoice.items?.length) {
+        invoice.items.forEach(item => addInvoiceItemRow({ name: item.name, qty: item.qty, price: item.price }));
+      } else {
+        addInvoiceItemRow({ name: 'Producto/Servicio', qty: 1, price: invoice.subtotal });
+      }
+      recalcInvoiceTotals();
+
+      document.getElementById('inv-notes').textContent = 'Gracias por su compra.';
+
+      document.getElementById('modal-invoice').classList.remove('hidden');
+    }
+
+    document.getElementById('btn-close-invoice').onclick = () => document.getElementById('modal-invoice').classList.add('hidden');
+    document.getElementById('btn-invoice-add-row').onclick = () => addInvoiceItemRow({ name: '', qty: 1, price: 0 });
+
+    document.getElementById('btn-download-invoice-png').onclick = async () => {
+      const canvas = await html2canvas(document.getElementById('invoice-paper'), { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const link = document.createElement('a');
+      link.download = `${document.getElementById('inv-number').textContent || 'factura'}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    };
+
+    document.getElementById('btn-download-invoice-pdf').onclick = async () => {
+      const canvas = await html2canvas(document.getElementById('invoice-paper'), { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
+      pdf.save(`${document.getElementById('inv-number').textContent || 'factura'}.pdf`);
+    };
+
+    // -------------------------------------------------------------
+    // 9. INVENTARIO & REPORTES AUXILIARES
+    // -------------------------------------------------------------
+    // Registra un movimiento de inventario (entrada/salida/ajuste). No debe interrumpir
+    // la operación principal (venta o guardado de producto) si llega a fallar.
+    async function logInventoryMovement(productId, productName, type, quantity, stockBefore, stockAfter, reason) {
+      try {
+        await supabase.from('inventory_movements').insert([{
+          business_id: currentBusinessId,
+          product_id: productId,
+          product_name: productName,
+          type, quantity, stock_before: stockBefore, stock_after: stockAfter, reason
+        }]);
+      } catch (e) {
+        console.error('logInventoryMovement:', e);
+      }
+    }
+
+    async function initInventory() {
+      const form = document.getElementById('product-form');
+      document.getElementById('btn-show-add-product').onclick = () => { form.reset(); document.getElementById('prod-id').value = ''; form.classList.remove('hidden'); };
+      document.getElementById('btn-cancel-product').onclick = () => form.classList.add('hidden');
+
+      document.getElementById('btn-show-inventory-history').onclick = async () => {
+        const { data } = await supabase.from('inventory_movements').select('*')
+          .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100);
+        const tbody = document.getElementById('inventory-history-table-body');
+        tbody.innerHTML = '';
+        const typeLabel = { entrada: '🟢 Entrada', salida: '🔴 Salida', ajuste: '🟡 Ajuste' };
+        (data || []).forEach(m => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${new Date(m.created_at).toLocaleString()}</td>
+            <td>${escapeHtml(m.product_name)}</td>
+            <td>${escapeHtml(typeLabel[m.type] || m.type)}</td>
+            <td class="font-numeric">${m.quantity > 0 ? '+' : ''}${m.quantity}</td>
+            <td>${m.stock_before} → ${m.stock_after}</td>
+            <td>${escapeHtml(m.reason) || '—'}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+        if ((data || []).length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="color: var(--text-muted);">Sin movimientos registrados todavía.</td></tr>';
+        }
+        document.getElementById('modal-inventory-history').classList.remove('hidden');
+      };
+      document.getElementById('btn-close-inventory-history').onclick = () => document.getElementById('modal-inventory-history').classList.add('hidden');
+
+      const loadProducts = async () => {
+        const { data } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+        if (data) {
+          inventorySnapshot = data;
+          renderInventoryTable(inventorySnapshot);
+          populateSalesSelect(inventorySnapshot);
+        }
+      };
+
+      await loadProducts();
+
+      form.onsubmit = async (e) => {
+        e.preventDefault();
+        const id = document.getElementById('prod-id').value;
+        const existingProd = id ? inventorySnapshot.find(p => p.id === id) : null;
+        const payload = {
+          business_id: currentBusinessId,
+          name: document.getElementById('prod-name').value,
+          sku: document.getElementById('prod-sku').value.trim() || null,
+          category: document.getElementById('prod-category').value.trim() || 'General',
+          purchase_price: parseFloat(document.getElementById('prod-cost').value) || 0,
+          sale_price: parseFloat(document.getElementById('prod-price').value),
+          stock: parseInt(document.getElementById('prod-stock').value),
+          min_stock: parseInt(document.getElementById('prod-min').value)
+        };
+
+        if (id) {
+          await supabase.from('products').update(payload).eq('id', id);
+          const stockBefore = existingProd ? existingProd.stock : 0;
+          if (payload.stock !== stockBefore) {
+            await logInventoryMovement(id, payload.name, 'ajuste', payload.stock - stockBefore, stockBefore, payload.stock, 'Ajuste manual desde edición de producto');
+          }
+        } else {
+          const { data: newProd } = await supabase.from('products').insert([payload]).select().single();
+          if (newProd) {
+            await logInventoryMovement(newProd.id, payload.name, 'entrada', payload.stock, 0, payload.stock, 'Registro inicial de producto');
+          }
+        }
+
+        if (id) {
+          await logActivity(`Editó el producto "${payload.name}"`, {
+            entityType: 'product',
+            entityId: id,
+            oldValues: existingProd ? {
+              'Precio Compra': existingProd.purchase_price, 'Precio Venta': existingProd.sale_price, Stock: existingProd.stock
+            } : null,
+            newValues: { 'Precio Compra': payload.purchase_price, 'Precio Venta': payload.sale_price, Stock: payload.stock }
+          });
+        } else {
+          await logActivity(`Creó el producto "${payload.name}"`, { entityType: 'product' });
+        }
+        form.classList.add('hidden');
+        await loadProducts();
+      };
+    }
+
+function renderInventoryTable(products) {
+  const tbody = document.getElementById('inventory-table-body');
+  tbody.innerHTML = '';
+  products.forEach(p => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escapeHtml(p.name)}${p.sku ? `<br><span style="font-size:0.75rem; color: var(--text-muted);">SKU: ${escapeHtml(p.sku)}</span>` : ''}</td>
+      <td>${escapeHtml(p.category) || 'General'}</td>
+      <td class="font-numeric">$${parseFloat(p.sale_price).toFixed(2)}</td>
+      <td>${p.stock}</td>
+      <td><button class="btn-edit" data-id="${p.id}" style="padding:0.2rem 0.5rem; margin:0; font-size:0.8rem;">Editar</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  // Sugerencias de categoría (autocompletar) a partir de las ya usadas en el inventario
+  const categoryList = document.getElementById('category-list');
+  if (categoryList) {
+    const categories = [...new Set(products.map(p => p.category).filter(Boolean))];
+    categoryList.innerHTML = categories.map(c => `<option value="${escapeHtml(c)}"></option>`).join('');
+  }
+
+  tbody.querySelectorAll('.btn-edit').forEach(btn => {
+    btn.onclick = (e) => {
+      const prod = inventorySnapshot.find(p => p.id === e.target.dataset.id);
+      if (!prod) return;
+      document.getElementById('prod-id').value = prod.id;
+      document.getElementById('prod-name').value = prod.name;
+      document.getElementById('prod-sku').value = prod.sku || '';
+      document.getElementById('prod-category').value = prod.category || '';
+      document.getElementById('prod-cost').value = prod.purchase_price;
+      document.getElementById('prod-price').value = prod.sale_price;
+      document.getElementById('prod-stock').value = prod.stock;
+      document.getElementById('prod-min').value = prod.min_stock;
+      document.getElementById('product-form').classList.remove('hidden');
+    };
+  });
+}
+
+    function populateSalesSelect(products) {
+      const select = document.getElementById('sale-product-select');
+      select.innerHTML = '';
+      const alertsOn = currentBusinessData?.global_low_stock_alert !== false;
+      products.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        const isLow = alertsOn && p.stock <= p.min_stock;
+        if (isLow) opt.className = 'low-stock-option';
+        opt.textContent = `${p.name} ($${parseFloat(p.sale_price).toFixed(2)} | Stock: ${p.stock})${isLow ? ' ⚠️ STOCK BAJO' : ''}`;
+        select.appendChild(opt);
+      });
+    }
+
+    function renderCart() {
+      const tbody = document.getElementById('cart-table-body');
+      tbody.innerHTML = '';
+      let total = 0;
+      cart.forEach((item, index) => {
+        total += item.subtotal;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${escapeHtml(item.name)}</td>
+          <td>${item.qty}</td>
+          <td class="font-numeric">$${item.subtotal.toFixed(2)}</td>
+          <td><button class="btn-danger btn-remove" data-index="${index}" style="padding:0.1rem 0.4rem; margin:0; font-size:0.75rem;">X</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('cart-total').textContent = total.toFixed(2);
+      tbody.querySelectorAll('.btn-remove').forEach(btn => {
+        btn.onclick = (e) => {
+          cart.splice(parseInt(e.target.dataset.index), 1);
+          renderCart();
+        };
+      });
+    }
+
+    async function initReports() {
+      const { data } = await supabase.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
+      if (data) {
+        salesHistory = data;
+        calculateFinancialDashboard();
+      }
+    }
+
+    document.getElementById('btn-logout').onclick = () => supabase.auth.signOut();
+  </script>
+</body>
+</html>
