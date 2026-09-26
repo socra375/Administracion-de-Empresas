@@ -16,7 +16,7 @@
   <link rel="manifest" href="data:application/manifest+json;utf8,{
     %22short_name%22:%22MiNegocio%22,
     %22name%22:%22Sistema%20de%20Gestion%20PYME%22,
-    %22icons%22:[{%22src%22:%22https://cdn-icons-png.flaticon.com/512/3135/3135715.png%22,%22type%22:%22image/png%22,%22sizes%22:%22192x192%22}],
+    %22icons%22:[{%22src%22:%22logo-512.png%22,%22type%22:%22image/png%22,%22sizes%22:%22512x512%22}],
     %22start_url%22:%22.%22,
     %22background_color%22:%22%230B1120%22,
     %22theme_color%22:%22%23141B2E%22,
@@ -25,7 +25,16 @@
   }">
   <meta name="theme-color" content="#141B2E">
 
-<link rel="icon" type="image/png" href="favicon-512.png">
+  <!-- Identidad visual. El SVG es el original y escala sin perder nitidez; el PNG es el
+       respaldo para donde no se admite SVG (instalación como app, previsualización al
+       compartir el enlace, navegadores antiguos). -->
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="icon" type="image/png" sizes="512x512" href="logo-512.png">
+  <link rel="apple-touch-icon" href="logo-512.png">
+  <meta property="og:title" content="Gestor de Empresas">
+  <meta property="og:description" content="Ventas, inventario y cuentas por cobrar en un solo lugar.">
+  <meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
+  <meta name="twitter:card" content="summary">
 
   <!-- Supabase JS v2 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -378,7 +387,7 @@
 
 <header id="app-header" class="hidden">
   <div style="display: flex; align-items: center; gap: 0.6rem;">
-    <img id="header-logo-img" src="logo-header.png" alt="Logo" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;">
+    <img id="header-logo-img" src="logo.svg" alt="Logo" style="width: 32px; height: 32px; border-radius: 6px; object-fit: cover;">
     <div>
       <h2 id="business-display-name" style="font-size: 1.1rem; line-height: 1.1;">Mi Negocio</h2>
       <div style="display: flex; align-items: center; gap: 0.4rem;">
@@ -851,7 +860,7 @@
           <input type="text" id="cfg-address" placeholder="Ej: Av. Principal #12">
           <label>Logotipo del Negocio</label>
           <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
-            <img id="cfg-logo-preview" src="logo-header.png" style="width: 50px; height: 50px; border-radius: 8px; border: 1px solid var(--border-subtle); object-fit: cover;">
+            <img id="cfg-logo-preview" src="logo.svg" style="width: 50px; height: 50px; border-radius: 8px; border: 1px solid var(--border-subtle); object-fit: cover;">
             <input type="file" id="cfg-logo-file" accept="image/*" style="margin-top: 0;">
             <button type="button" id="btn-remove-logo" class="btn-danger" style="width: auto; margin: 0; padding: 0.5rem 0.8rem; font-size: 0.8rem;">Eliminar</button>
           </div>
@@ -1657,7 +1666,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 
     function applyLogoToHeader() {
-      const logoSrc = currentBusinessData?.logo_url || 'logo-header.png';
+      const logoSrc = currentBusinessData?.logo_url || 'logo.svg';
       document.getElementById('header-logo-img').src = logoSrc;
       document.getElementById('cfg-logo-preview').src = logoSrc;
     }
@@ -2373,7 +2382,7 @@ if (paymentMethod === 'Crédito') {
 
       document.getElementById('cfg-global-low-stock').checked = b.global_low_stock_alert !== false;
 
-      document.getElementById('cfg-logo-preview').src = b.logo_url || 'logo-header.png';
+      document.getElementById('cfg-logo-preview').src = b.logo_url || 'logo.svg';
       logoMarkedForRemoval = false;
     }
 
@@ -2382,7 +2391,7 @@ if (paymentMethod === 'Crédito') {
       if (!confirm("¿Eliminar el logotipo actual del negocio?")) return;
       logoMarkedForRemoval = true;
       document.getElementById('cfg-logo-file').value = '';
-      document.getElementById('cfg-logo-preview').src = 'logo-header.png';
+      document.getElementById('cfg-logo-preview').src = 'logo.svg';
     };
 
     document.getElementById('form-cfg-business').addEventListener('submit', async (e) => {
