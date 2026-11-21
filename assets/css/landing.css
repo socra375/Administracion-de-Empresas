@@ -97,3 +97,7 @@ body.landing { min-height: 100dvh; display: flex; flex-direction: column;
   .lp-final { padding: 32px 22px; }
   .lp-actions .btn-ghost-label { display: none; }
 }
+
+/* Enlace de regreso a AINova Systems (la plataforma corporativa) */
+.lp-back { white-space: nowrap; }
+.lp-footer a { text-decoration: underline; text-underline-offset: 3px; }
