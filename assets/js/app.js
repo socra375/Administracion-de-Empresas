@@ -2654,10 +2654,31 @@ async function initReports() {
   }
 }
 
-// Salir: tanto el botón del menú lateral como los de Mi cuenta y la hoja "Más"
-document.querySelectorAll('.js-logout').forEach(btn => {
-  btn.onclick = () => {
-    userRequestedLogout = true;
-    neon.auth.signOut();
-  };
-});
+// Salir: el botón del menú lateral, el de Mi cuenta y el de la hoja "Más".
+// No se depende del aviso del cliente de autenticación (el real no siempre lo emite en la
+// misma pestaña): se espera a que el servicio cierre la sesión y se sale por aquí mismo.
+let loggingOut = false;
+async function logout() {
+  if (loggingOut) return;
+  loggingOut = true;
+  userRequestedLogout = true;
+  document.querySelectorAll('.js-logout').forEach(b => { b.disabled = true; });
+  let failure = null;
+  try {
+    const res = await neon.auth.signOut();
+    failure = res?.error || null;
+  } catch (e) {
+    failure = e;
+  }
+  if (failure) {
+    console.error('signOut:', failure);
+    userRequestedLogout = false;
+    loggingOut = false;
+    document.querySelectorAll('.js-logout').forEach(b => { b.disabled = false; });
+    toast.err("No se pudo cerrar la sesión: " + (failure.message || failure) + ". Revisa tu conexión e inténtalo de nuevo.");
+    return;
+  }
+  try { localStorage.removeItem(VISITED_KEY); } catch (e) { /* ignorar */ }
+  window.location.replace('index.html');
+}
+document.querySelectorAll('.js-logout').forEach(btn => { btn.onclick = logout; });
