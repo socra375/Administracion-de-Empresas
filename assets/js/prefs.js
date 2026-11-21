@@ -108,7 +108,7 @@ export function buildBrandCss(primary, accent) {
 /** Aplica (o quita, si es la marca por defecto) los colores del negocio. */
 export function applyBrand(brand) {
   let el = document.getElementById('brand-style');
-  const custom = brand && ((isHex(brand.primary) && brand.primary.toLowerCase() !== DEFAULT_PRIMARY) || (isHex(brand.accent) && brand.accent.toLowerCase() !== DEFAULT_ACCENT));
+  const custom = brand && ((isHex(brand.primary) && brand.primary.toLowerCase() !== DEFAULT_PRIMARY.toLowerCase()) || (isHex(brand.accent) && brand.accent.toLowerCase() !== DEFAULT_ACCENT.toLowerCase()));
   if (!custom) { el?.remove(); return; }
   if (!el) { el = document.createElement('style'); el.id = 'brand-style'; document.head.appendChild(el); }
   el.textContent = buildBrandCss(brand.primary, brand.accent);
