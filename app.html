@@ -36,8 +36,9 @@
   <meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
   <meta name="twitter:card" content="summary">
 
-  <!-- Supabase JS v2 CDN -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- Cliente de Neon (autenticación + API de datos), empaquetado en vendor/. Conserva la
+       interfaz de supabase-js, así que el resto de la app casi no cambió. Ver vendor/README.md. -->
+  <script src="vendor/neon-supabase.js"></script>
   <!-- Chart.js, jsPDF y html2canvas -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -502,6 +503,11 @@
       transition: transform 0.12s ease, box-shadow 0.12s ease;
     }
     #auth-screen button[type="submit"]:hover { transform: translateY(-1px); box-shadow: 0 16px 28px rgba(124, 58, 237, 0.4); }
+    #auth-screen #btn-forgot-password {
+      display: block; width: auto; margin: 6px 0 0 auto; padding: 0; background: none; border: none;
+      color: #4F3FE0; font-weight: 600; font-size: 12.5px; text-decoration: underline;
+      cursor: pointer; font-family: inherit; box-shadow: none; transform: none;
+    }
     .auth-divider { display: flex; align-items: center; gap: 12px; color: #5B6178; font-size: 12.5px; }
     .auth-divider::before, .auth-divider::after { content: ''; flex: 1; height: 1px; background: rgba(15, 21, 48, 0.1); }
     #auth-screen #btn-google-auth {
@@ -569,6 +575,7 @@
             <div class="auth-field">
               <label for="auth-password">Contraseña</label>
               <input type="password" id="auth-password" placeholder="••••••••" autocomplete="current-password" required>
+              <button type="button" id="btn-forgot-password">¿Olvidaste tu contraseña?</button>
             </div>
 
             <div class="auth-field optional">
@@ -624,13 +631,11 @@
 
     <!-- FORZAR CONTRASEÑA EN ONBOARDING GRUPO -->
     <div id="modal-forced-password" class="card hidden" style="position: fixed; top: 10%; left: 5%; right: 5%; z-index: 300; border: 2px solid var(--accent-brand);">
-      <h3>Crea tu contraseña obligatoria</h3>
+      <h3>Crea tu contraseña</h3>
       <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-        Has creado un negocio de tipo "Grupo / Equipo". Para la seguridad de tu negocio y la gestión de empleados, debes definir una contraseña master.
+        Has creado un negocio de tipo "Grupo / Equipo". Para la seguridad de tu negocio y la gestión de empleados, debes tener una contraseña. Te enviaremos un enlace a tu correo para crearla.
       </p>
-      <label>Nueva Contraseña Admin</label>
-      <input type="password" id="forced-password-input" placeholder="Mínimo 6 caracteres" required>
-      <button id="btn-save-forced-password" class="btn-primary" style="margin-top: 1rem;">Establecer Contraseña y Entrar</button>
+      <button id="btn-save-forced-password" class="btn-primary" style="margin-top: 1rem;">Enviar enlace y entrar</button>
     </div>
 
     <!-- MÓDULO: DASHBOARD CIRCULAR -->
@@ -1098,12 +1103,20 @@
 
   <!-- MODALES AUXILIARES -->
   <div id="modal-password" class="card hidden" style="position: fixed; top: 15%; left: 5%; right: 5%; z-index: 200;">
-    <h3>Crear / Vincular Contraseña</h3>
-    <p style="font-size: 0.8rem; color: var(--text-muted);">Escribe una contraseña para acceder con tu correo directo.</p>
-    <label>Nueva Contraseña</label>
-    <input type="password" id="input-new-password" placeholder="Mínimo 6 caracteres">
-    <button id="btn-save-password" class="btn-primary">Guardar Contraseña</button>
+    <h3>Crear o cambiar contraseña</h3>
+    <p style="font-size: 0.8rem; color: var(--text-muted);">Te enviaremos un enlace a tu correo para crear o cambiar tu contraseña. Sirve también si entraste con Google y quieres poder entrar con tu correo.</p>
+    <button id="btn-save-password" class="btn-primary">Enviar enlace por correo</button>
     <button id="btn-close-password" style="background: transparent;">Cancelar</button>
+  </div>
+
+  <!-- Pantalla a la que lleva el enlace del correo: elegir la contraseña nueva. -->
+  <div id="modal-reset-password" class="card hidden" style="position: fixed; top: 15%; left: 5%; right: 5%; z-index: 320; max-width: 420px; margin: 0 auto;">
+    <h3>Nueva contraseña</h3>
+    <p style="font-size: 0.8rem; color: var(--text-muted);">Escribe la contraseña que usarás para entrar con tu correo.</p>
+    <label>Nueva contraseña</label>
+    <input type="password" id="input-reset-password" placeholder="Mínimo 8 caracteres" autocomplete="new-password">
+    <button id="btn-save-reset-password" class="btn-primary">Guardar contraseña</button>
+    <button id="btn-cancel-reset-password" style="background: transparent;">Cancelar</button>
   </div>
 
   <!-- FACTURA: vista previa editable, generada como imagen -->
@@ -1174,7 +1187,7 @@
     // -------------------------------------------------------------
     // Escapa texto antes de insertarlo en HTML vía innerHTML/template strings. Nombres de
     // clientes, productos, empleados, etc. vienen de formularios del propio usuario (o de
-    // otro miembro del negocio) y se guardan tal cual en Supabase — sin esto, un nombre como
+    // otro miembro del negocio) y se guardan tal cual en la base de datos — sin esto, un nombre como
     // <img src=x onerror=alert(1)> se ejecutaría al mostrarse en cualquier tabla o factura.
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, (ch) => ({
@@ -1184,7 +1197,7 @@
 
     // -------------------------------------------------------------
     // 0. PERSONALIZACIÓN (tema y fondo): preferencia por dispositivo, guardada en
-    // localStorage. Se aplica de inmediato, antes de iniciar Supabase, para que no
+    // localStorage. Se aplica de inmediato, antes de iniciar el cliente de Neon, para que no
     // haya parpadeo con el tema por defecto.
     // -------------------------------------------------------------
     const THEME_STORAGE_KEY = 'pyme_theme';
@@ -1200,11 +1213,12 @@
     // la presentación.
     let userRequestedLogout = false;
 
-    // Dirección pública del sitio: la CARPETA, no este archivo. Los correos de Supabase
-    // (confirmación, OAuth) y los links de invitación apuntan aquí a propósito: es la URL
-    // que ya está en la lista de Redirect URLs permitidas del proyecto, y los enlaces que
-    // se enviaron antes de separar la presentación de la app también apuntan ahí.
-    // index.html reenvía a esta página conservando el ?query y el #hash intactos.
+    // Dirección pública del sitio: la CARPETA, no este archivo. Los correos del servicio de
+    // autenticación (restablecer contraseña) y los links de invitación apuntan aquí a
+    // propósito: los enlaces que ya se enviaron antes de separar la presentación de la app
+    // también apuntan ahí, y el dominio https://socra375.github.io es de confianza en Neon
+    // Auth (se valida el origen, no la ruta). index.html reenvía a la página de la app
+    // conservando el ?query y el #hash intactos.
     function siteBaseUrl() {
       return window.location.origin + window.location.pathname.replace(/[^/]*$/, '');
     }
@@ -1237,12 +1251,13 @@
     }
 
     // -------------------------------------------------------------
-    // 1. SUPABASE INITIALIZATION
+    // 1. NEON: AUTENTICACIÓN Y BASE DE DATOS
     // -------------------------------------------------------------
-    const SUPABASE_URL = "https://fiuriowywsjqxujpdzpe.supabase.co";
-    const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZpdXJpb3d5d3NqcXh1anBkenBlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODgyMzY2NjMsImV4cCI6MjEwMzgxMjY2M30.r8o38yXRF6kezo0gOuylaku8wMOXKR6siiFRP16yhe8";
-
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    // Una sola dirección pública (servidor + base). El cliente deriva de ella la del servicio
+    // de autenticación y la de la API de datos. No hay claves en el navegador: la seguridad
+    // la ponen las reglas de la base (RLS, ver db/schema.sql) y el token de cada usuario.
+    const NEON_URL = "https://ep-old-credit-bc1j2pi5.c-16.us-east-1.aws.neon.tech/neondb";
+    const neon = window.NeonSupabase.createClient(NEON_URL);
 
     // -------------------------------------------------------------
     // 2. ESTADO GLOBAL
@@ -1371,14 +1386,14 @@
       if (inviteCode) {
         const params = new URLSearchParams({ invite: inviteCode, empname: employeeName });
         redirectTo = `${baseUrl}?${params.toString()}`;
-        // Respaldo además de la URL: Google/Supabase pueden descartar el query string al
-        // completar el login (p. ej. si la URL exacta no está en la lista de Redirect URLs
-        // permitidas del proyecto), dejando al empleado sin el código al volver. Guardarlo
+        // Respaldo además de la URL: Google o el servicio de autenticación pueden descartar el query string al
+        // completar el login (p. ej. si la URL exacta no está entre los dominios de confianza
+        // del servicio), dejando al empleado sin el código al volver. Guardarlo
         // también en este navegador permite recuperarlo aunque eso pase.
         try { localStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ code: inviteCode, name: employeeName })); } catch (e) { /* ignorar */ }
       }
 
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error } = await neon.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo }
       });
@@ -1389,17 +1404,49 @@
     document.getElementById('btn-set-password').onclick = () => document.getElementById('modal-password').classList.remove('hidden');
     document.getElementById('btn-close-password').onclick = () => document.getElementById('modal-password').classList.add('hidden');
     document.getElementById('btn-save-password').onclick = async () => {
-      const newPassword = document.getElementById('input-new-password').value;
-      if (newPassword.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
-
-      const { error } = await supabase.auth.updateUser({ password: newPassword });
-      if (error) alert("Error al guardar contraseña: " + error.message);
-      else {
-        alert("¡Listo! Ya puedes iniciar sesión con tu correo y esta contraseña.");
-        document.getElementById('modal-password').classList.add('hidden');
-        document.getElementById('input-new-password').value = '';
-      }
+      const email = await currentUserEmail();
+      if (!email) return alert("No pude leer tu correo. Cierra sesión y vuelve a entrar.");
+      const error = await sendPasswordLink(email);
+      if (error) return alert("No pude enviar el enlace: " + authErrorMessage(error));
+      alert(`Listo. Te enviamos un enlace a ${email}. Ábrelo desde el correo para elegir tu contraseña.`);
+      document.getElementById('modal-password').classList.add('hidden');
     };
+
+    // "¿Olvidaste tu contraseña?" en la pantalla de acceso.
+    document.getElementById('btn-forgot-password').onclick = async () => {
+      const email = document.getElementById('auth-email').value.trim();
+      if (!email) return alert("Escribe primero tu correo en el campo de arriba.");
+      const error = await sendPasswordLink(email);
+      if (error) return alert("No pude enviar el enlace: " + authErrorMessage(error));
+      alert("Si ese correo está registrado, te enviamos un enlace para crear una contraseña nueva.");
+    };
+
+    // Llegada desde el enlace del correo: ?reset=1&token=... (o ?reset=1&error=... si venció).
+    {
+      const qs = new URLSearchParams(window.location.search);
+      const resetToken = qs.get('reset') === '1' ? qs.get('token') : null;
+      const clearResetFromUrl = () => window.history.replaceState({}, document.title, window.location.pathname);
+      if (resetToken) {
+        document.getElementById('modal-reset-password').classList.remove('hidden');
+      } else if (qs.get('reset') === '1') {
+        alert("El enlace para crear la contraseña no es válido o ya venció. Pide uno nuevo.");
+        clearResetFromUrl();
+      }
+      document.getElementById('btn-cancel-reset-password').onclick = () => {
+        document.getElementById('modal-reset-password').classList.add('hidden');
+        clearResetFromUrl();
+      };
+      document.getElementById('btn-save-reset-password').onclick = async () => {
+        const pass = document.getElementById('input-reset-password').value;
+        if (pass.length < 8) return alert("La contraseña debe tener al menos 8 caracteres.");
+        const { error } = await neon.auth.getBetterAuthInstance().resetPassword({ newPassword: pass, token: resetToken });
+        if (error) return alert("No pude guardar la contraseña: " + authErrorMessage(error));
+        alert("Contraseña guardada. Ya puedes entrar con tu correo y esta contraseña.");
+        document.getElementById('input-reset-password').value = '';
+        document.getElementById('modal-reset-password').classList.add('hidden');
+        clearResetFromUrl();
+      };
+    }
 
     // Ícono de Configuración (header) -> abre la sección de Configuración
     document.getElementById('btn-header-settings').onclick = () => {
@@ -1613,6 +1660,32 @@
     // -------------------------------------------------------------
     // 4. AUTENTICACIÓN, ROLES & REGISTRO DE EMPLEADOS
     // -------------------------------------------------------------
+// Los mensajes de error del servicio de autenticación vienen en inglés: se traducen los
+// habituales y el resto se muestra tal cual.
+function authErrorMessage(err) {
+  const m = String(err?.message || err || '');
+  if (/invalid (email or )?password|invalid credentials|incorrect/i.test(m)) return 'Correo o contraseña incorrectos.';
+  if (/already exist|already registered|use another email/i.test(m)) return 'Ese correo ya tiene una cuenta. Si es tuyo, revisa la contraseña.';
+  if (/too short|at least|min(imum)? length/i.test(m)) return 'La contraseña es demasiado corta (mínimo 8 caracteres).';
+  if (/too long/i.test(m)) return 'La contraseña es demasiado larga.';
+  if (/invalid email|valid email/i.test(m)) return 'El correo no es válido.';
+  if (/too many|rate limit/i.test(m)) return 'Demasiados intentos. Espera un momento y vuelve a intentarlo.';
+  if (/token/i.test(m) && /(invalid|expired)/i.test(m)) return 'El enlace no es válido o ya venció. Pide uno nuevo.';
+  return m || 'Error desconocido.';
+}
+
+// La contraseña se crea o se cambia con un enlace que llega al correo: el servicio de
+// autenticación no permite cambiarla desde una sesión abierta. El mismo enlace sirve a quien
+// entró con Google y todavía no tiene contraseña.
+async function sendPasswordLink(email) {
+  const { error } = await neon.auth.resetPasswordForEmail(email, { redirectTo: `${siteBaseUrl()}?reset=1` });
+  return error;
+}
+async function currentUserEmail() {
+  const { data: { user } } = await neon.auth.getUser();
+  return user?.email || null;
+}
+
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const email = document.getElementById('auth-email').value;
@@ -1625,9 +1698,15 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     return;
   }
 
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const { error } = await neon.auth.signInWithPassword({ email, password });
 
   if (error) {
+    // Quien no tiene cuenta se registra con el mismo formulario. Si el correo ya existe, el
+    // fallo real es la contraseña, y así se le dice.
+    if (password.length < 8) {
+      alert("Si ya tienes cuenta, revisa tu contraseña. Si te estás registrando, la contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
     const baseUrl = siteBaseUrl();
     const params = new URLSearchParams();
     if (inviteCode) {
@@ -1639,21 +1718,27 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       try { localStorage.setItem(PENDING_INVITE_KEY, JSON.stringify({ code: inviteCode, name: employeeName })); } catch (e) { /* ignorar */ }
     }
 
-    const { error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await neon.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: redirectUrl }
+      options: {
+        emailRedirectTo: redirectUrl,
+        // El servicio exige un nombre. Un empleado ya escribió el suyo; el resto usa su correo.
+        data: { displayName: employeeName || email.split('@')[0] }
+      }
     });
 
     if (signUpError) {
-      alert("Error de autenticación: " + signUpError.message);
+      alert(/already exist|already registered|use another email/i.test(signUpError.message || '')
+        ? authErrorMessage(error)
+        : "Error de autenticación: " + authErrorMessage(signUpError));
       return;
     }
-
-    alert("Registro exitoso. Revisa tu correo (en cualquier dispositivo) para confirmar la cuenta.");
+    // Sin verificación de correo, el registro abre la sesión de inmediato y onAuthStateChange
+    // entra a la app: no hace falta avisar nada.
   }
 });
-    supabase.auth.onAuthStateChange(async (event, session) => {
+    neon.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         const userId = session.user.id;
         // Antes del corte de abajo: la marca debe ponerse en cada evento con sesión, no solo
@@ -1663,8 +1748,8 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
         // Canjear código de invitación pendiente. Se busca primero en localStorage (guardado
         // justo antes de salir hacia Google/el correo de confirmación) porque es más
-        // confiable que la URL: Supabase puede redirigir a una URL "limpia" sin el query
-        // string si la URL exacta no está en su lista de Redirect URLs permitidas. Si no hay
+        // confiable que la URL: el servicio de autenticación puede redirigir a una URL "limpia"
+        // sin el query string si la URL exacta no está entre sus dominios de confianza. Si no hay
         // nada en localStorage, se revisa la URL como respaldo (flujo de correo original).
         let pendingCode = null, pendingName = '';
         try {
@@ -1683,7 +1768,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }
 
         if (pendingCode) {
-          const { data: redeemedBusinessId, error: redeemError } = await supabase.rpc('redeem_invite_code', { input_code: pendingCode, input_employee_name: pendingName });
+          const { data: redeemedBusinessId, error: redeemError } = await neon.rpc('redeem_invite_code', { input_code: pendingCode, input_employee_name: pendingName });
           try { localStorage.removeItem(PENDING_INVITE_KEY); } catch (e) { /* ignorar */ }
           window.history.replaceState({}, document.title, window.location.pathname);
 
@@ -1697,7 +1782,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
         // Si no se acaba de canjear un código, determinar rol normalmente
         if (!currentBusinessId) {
-          const { data: memberData } = await supabase
+          const { data: memberData } = await neon
             .from('business_members')
             .select('*')
             .eq('user_id', userId)
@@ -1714,10 +1799,10 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         }
 
         // Cargar Ajustes y Datos de Negocio
-        let { data: bData } = await supabase.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
+        let { data: bData } = await neon.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
         
         if (!bData && currentUserRole === 'admin') {
-          const { data: newB } = await supabase.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
+          const { data: newB } = await neon.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
           bData = newB;
         }
 
@@ -1745,7 +1830,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         try { localStorage.removeItem(VISITED_KEY); } catch (e) { /* ignorar */ }
         currentBusinessId = null;
         modulesInitialized = false;
-        supabase.removeAllChannels();
+        neon.removeAllChannels?.(); // la app no usa tiempo real; el cliente de Neon no lo trae
         document.getElementById('auth-screen').classList.remove('hidden');
         document.getElementById('onboarding-screen').classList.add('hidden');
         document.getElementById('app-header').classList.add('hidden');
@@ -1778,14 +1863,14 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
       if (selectedBusinessType === 'group') {
         // Insertar en business_members como admin
-        await supabase.from('business_members').upsert([{
+        await neon.from('business_members').upsert([{
           business_id: currentBusinessId,
           user_id: currentBusinessId,
           role: 'admin'
         }]);
 
         // Guardar estado parcial e invocar forzado de contraseña
-        await supabase.from('businesses').upsert({
+        await neon.from('businesses').upsert({
           id: currentBusinessId,
           name: bName,
           business_type: 'group',
@@ -1796,7 +1881,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
         document.getElementById('onboarding-screen').classList.add('hidden');
         document.getElementById('modal-forced-password').classList.remove('hidden');
       } else {
-        await supabase.from('businesses').upsert({
+        await neon.from('businesses').upsert({
           id: currentBusinessId,
           name: bName,
           business_type: 'individual',
@@ -1811,11 +1896,11 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
     // Forzado de Contraseña en Onboarding Grupo
     document.getElementById('btn-save-forced-password').onclick = async () => {
-      const pass = document.getElementById('forced-password-input').value;
-      if (pass.length < 6) return alert("La contraseña debe tener al menos 6 caracteres.");
-
-      const { error } = await supabase.auth.updateUser({ password: pass });
-      if (error) return alert("Error guardando contraseña: " + error.message);
+      const email = await currentUserEmail();
+      if (!email) return alert("No pude leer tu correo. Cierra sesión y vuelve a entrar.");
+      const error = await sendPasswordLink(email);
+      if (error) return alert("No pude enviar el enlace: " + authErrorMessage(error));
+      alert(`Te enviamos un enlace a ${email} para crear tu contraseña. Ábrelo cuando puedas; mientras tanto ya puedes entrar.`);
 
       document.getElementById('modal-forced-password').classList.add('hidden');
       setupRoleInterface();
@@ -1882,7 +1967,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     // -------------------------------------------------------------
     async function initCustomersAndCredits() {
       const loadCustomers = async () => {
-        const { data } = await supabase.from('customers').select('*').eq('business_id', currentBusinessId);
+        const { data } = await neon.from('customers').select('*').eq('business_id', currentBusinessId);
         if (data) {
           customersSnapshot = data;
           populateSalesCustomerSelect();
@@ -1894,7 +1979,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
       document.getElementById('customer-form').onsubmit = async (e) => {
         e.preventDefault();
-        await supabase.from('customers').insert([{
+        await neon.from('customers').insert([{
           business_id: currentBusinessId,
           name: document.getElementById('cust-name').value,
           phone: document.getElementById('cust-phone').value
@@ -1905,7 +1990,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     }
 
     async function loadCredits() {
-      const { data } = await supabase.from('customer_credits').select('*').eq('business_id', currentBusinessId);
+      const { data } = await neon.from('customer_credits').select('*').eq('business_id', currentBusinessId);
       if (data) {
         creditsSnapshot = data;
         renderCustomersTable();
@@ -2003,7 +2088,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
 
         if (!creditId || !(amountToPay > 0)) return alert("Monto o crédito inválido.");
 
-        const { data: saleData, error: payErr } = await supabase.rpc('process_credit_payment', {
+        const { data: saleData, error: payErr } = await neon.rpc('process_credit_payment', {
           p_business_id: currentBusinessId,
           p_credit_id: creditId,
           p_amount: amountToPay
@@ -2117,7 +2202,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
           // Venta atómica: valida stock, crea la venta, registra la deuda (si aplica) y
           // descuenta el inventario dentro de una sola transacción en el servidor, para
           // evitar condiciones de carrera y escrituras parciales si algo falla a mitad de camino.
-          const { data: saleData, error: saleErr } = await supabase.rpc('process_sale', {
+          const { data: saleData, error: saleErr } = await neon.rpc('process_sale', {
             p_business_id: currentBusinessId,
             p_items: cart,
             p_payment_method: paymentMethod,
@@ -2178,7 +2263,7 @@ if (paymentMethod === 'Crédito') {
     function initEmployeeManagement() {
       document.getElementById('btn-generate-invite').onclick = async () => {
         const code = generateSecureInviteCode();
-        const { error } = await supabase.from('employee_invites').insert([{
+        const { error } = await neon.from('employee_invites').insert([{
           business_id: currentBusinessId,
           code: code
         }]);
@@ -2208,7 +2293,7 @@ if (paymentMethod === 'Crédito') {
     }
 
     async function loadEmployeesList() {
-      const { data } = await supabase.from('business_members')
+      const { data } = await neon.from('business_members')
         .select('*')
         .eq('business_id', currentBusinessId)
         .eq('role', 'employee');
@@ -2235,7 +2320,7 @@ if (paymentMethod === 'Crédito') {
           input.addEventListener('change', async (e) => {
             const newName = e.target.value.trim();
             const oldName = e.target.defaultValue;
-            await supabase.from('business_members').update({ employee_name: newName }).eq('id', e.target.dataset.id);
+            await neon.from('business_members').update({ employee_name: newName }).eq('id', e.target.dataset.id);
             await logActivity(`Cambió el nombre de un empleado a "${newName}"`, {
               entityType: 'employee', entityId: e.target.dataset.id,
               oldValues: { Nombre: oldName || '(sin nombre)' }, newValues: { Nombre: newName }
@@ -2248,7 +2333,7 @@ if (paymentMethod === 'Crédito') {
           input.addEventListener('change', async (e) => {
             const newTitle = e.target.value;
             const oldTitle = e.target.defaultValue;
-            await supabase.from('business_members').update({ role_title: newTitle }).eq('id', e.target.dataset.id);
+            await neon.from('business_members').update({ role_title: newTitle }).eq('id', e.target.dataset.id);
             await logActivity(`Actualizó el cargo de un empleado a "${newTitle}"`, {
               entityType: 'employee', entityId: e.target.dataset.id,
               oldValues: { Cargo: oldTitle || '(sin cargo)' }, newValues: { Cargo: newTitle }
@@ -2260,7 +2345,7 @@ if (paymentMethod === 'Crédito') {
         const savePermission = async (id, key, value, label) => {
           const member = data.find(m => m.id === id);
           const newPermissions = { ...(member?.permissions || {}), [key]: value };
-          const { error } = await supabase.from('business_members').update({ permissions: newPermissions }).eq('id', id);
+          const { error } = await neon.from('business_members').update({ permissions: newPermissions }).eq('id', id);
           if (error) {
             alert("Error al actualizar el permiso: " + error.message);
             return;
@@ -2288,7 +2373,7 @@ if (paymentMethod === 'Crédito') {
             const id = e.target.dataset.id;
             const name = e.target.dataset.name;
             if (!confirm(`¿Eliminar a "${name}" como empleado? Perderá el acceso al negocio.`)) return;
-            const { error } = await supabase.from('business_members').delete().eq('id', id);
+            const { error } = await neon.from('business_members').delete().eq('id', id);
             if (error) return alert("Error al eliminar empleado: " + error.message);
             await logActivity(`Eliminó al empleado "${name}"`);
             await loadEmployeesList();
@@ -2522,8 +2607,8 @@ if (paymentMethod === 'Crédito') {
     async function logActivity(action, details = {}) {
       if (!currentBusinessId) return;
       try {
-        const { data: { user } } = await supabase.auth.getUser();
-        await supabase.from('activity_log').insert([{
+        const { data: { user } } = await neon.auth.getUser();
+        await neon.from('activity_log').insert([{
           business_id: currentBusinessId,
           user_name: user?.email || 'Desconocido',
           action: action,
@@ -2547,7 +2632,7 @@ if (paymentMethod === 'Crédito') {
     }
 
     async function loadActivityLog() {
-      const { data } = await supabase.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30);
+      const { data } = await neon.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30);
       const tbody = document.getElementById('activity-log-table-body');
       tbody.innerHTML = '';
       if (data) {
@@ -2600,21 +2685,46 @@ if (paymentMethod === 'Crédito') {
       document.getElementById('cfg-logo-preview').src = 'logo.svg';
     };
 
+    // El logo se reduce a 256 px y se guarda como imagen incrustada en la propia fila del
+    // negocio (logo_url). Así no hace falta un servicio de archivos aparte, y la factura lo
+    // dibuja sin problemas de permisos entre dominios. Pasa de unos 200 KB de PNG a JPEG.
+    function fileToLogoDataUrl(file, maxSide = 256) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+          const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, w, h);
+          let dataUrl = canvas.toDataURL('image/png');
+          if (dataUrl.length > 200000) {
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, w, h);
+            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          }
+          URL.revokeObjectURL(url);
+          resolve(dataUrl);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('No se pudo leer la imagen.')); };
+        img.src = url;
+      });
+    }
+
     document.getElementById('form-cfg-business').addEventListener('submit', async (e) => {
       e.preventDefault();
       let logoUrl = logoMarkedForRemoval ? null : (currentBusinessData?.logo_url || null);
 
       const fileInput = document.getElementById('cfg-logo-file');
       if (fileInput.files.length > 0) {
-        const file = fileInput.files[0];
-        const fileExt = file.name.split('.').pop();
-        const filePath = `${currentBusinessId}/logo.${fileExt}`;
-        const { error: uploadErr } = await supabase.storage.from('business-logos').upload(filePath, file, { upsert: true });
-        if (uploadErr) {
-          alert("Error subiendo el logo: " + uploadErr.message);
-        } else {
-          const { data: pub } = supabase.storage.from('business-logos').getPublicUrl(filePath);
-          logoUrl = pub.publicUrl;
+        try {
+          logoUrl = await fileToLogoDataUrl(fileInput.files[0]);
+        } catch (err) {
+          alert("Error preparando el logo: " + err.message);
         }
       }
 
@@ -2629,7 +2739,7 @@ if (paymentMethod === 'Crédito') {
       };
 
       const oldData = currentBusinessData || {};
-      const { error } = await supabase.from('businesses').update(updates).eq('id', currentBusinessId);
+      const { error } = await neon.from('businesses').update(updates).eq('id', currentBusinessId);
       if (error) return alert("Error: " + error.message);
 
       currentBusinessData = { ...currentBusinessData, ...updates };
@@ -2654,7 +2764,7 @@ if (paymentMethod === 'Crédito') {
         tax_included_in_price: isIncluded,
         updated_at: new Date()
       };
-      const { error } = await supabase.from('businesses').update(updates).eq('id', currentBusinessId);
+      const { error } = await neon.from('businesses').update(updates).eq('id', currentBusinessId);
       if (error) return alert("Error: " + error.message);
       currentBusinessData = { ...currentBusinessData, ...updates };
       await logActivity('Actualizó moneda e impuestos');
@@ -2669,7 +2779,7 @@ if (paymentMethod === 'Crédito') {
         tarjeta: document.getElementById('cfg-pm-tarjeta').checked,
         credito: document.getElementById('cfg-pm-credito').checked
       };
-      const { error } = await supabase.from('businesses').update({ payment_methods, updated_at: new Date() }).eq('id', currentBusinessId);
+      const { error } = await neon.from('businesses').update({ payment_methods, updated_at: new Date() }).eq('id', currentBusinessId);
       if (error) return alert("Error: " + error.message);
       currentBusinessData.payment_methods = payment_methods;
       await logActivity('Actualizó métodos de pago');
@@ -2679,7 +2789,7 @@ if (paymentMethod === 'Crédito') {
     document.getElementById('form-cfg-alerts').addEventListener('submit', async (e) => {
       e.preventDefault();
       const val = document.getElementById('cfg-global-low-stock').checked;
-      const { error } = await supabase.from('businesses').update({ global_low_stock_alert: val, updated_at: new Date() }).eq('id', currentBusinessId);
+      const { error } = await neon.from('businesses').update({ global_low_stock_alert: val, updated_at: new Date() }).eq('id', currentBusinessId);
       if (error) return alert("Error: " + error.message);
       currentBusinessData.global_low_stock_alert = val;
       await logActivity('Actualizó alerta de stock bajo');
@@ -2713,7 +2823,7 @@ if (paymentMethod === 'Crédito') {
       const total = subtotal + taxAmount;
       const invoiceNumber = 'FAC-' + Math.floor(100000 + Math.random() * 900000);
 
-      return supabase.from('invoices').insert([{
+      return neon.from('invoices').insert([{
         business_id: currentBusinessId,
         sale_id: sale.id,
         customer_id: customerId || null,
@@ -2726,7 +2836,7 @@ if (paymentMethod === 'Crédito') {
     }
 
     async function loadInvoicesList() {
-      const { data } = await supabase.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
+      const { data } = await neon.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
       invoicesSnapshot = data || [];
       try { renderTopProducts(filterInvoicesByPeriod(invoicesSnapshot, activePeriod)); } catch (e) { console.error('renderTopProducts:', e); }
 
@@ -2868,7 +2978,7 @@ if (paymentMethod === 'Crédito') {
     // la operación principal (venta o guardado de producto) si llega a fallar.
     async function logInventoryMovement(productId, productName, type, quantity, stockBefore, stockAfter, reason) {
       try {
-        await supabase.from('inventory_movements').insert([{
+        await neon.from('inventory_movements').insert([{
           business_id: currentBusinessId,
           product_id: productId,
           product_name: productName,
@@ -2885,7 +2995,7 @@ if (paymentMethod === 'Crédito') {
       document.getElementById('btn-cancel-product').onclick = () => form.classList.add('hidden');
 
       document.getElementById('btn-show-inventory-history').onclick = async () => {
-        const { data } = await supabase.from('inventory_movements').select('*')
+        const { data } = await neon.from('inventory_movements').select('*')
           .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100);
         const tbody = document.getElementById('inventory-history-table-body');
         tbody.innerHTML = '';
@@ -2910,7 +3020,7 @@ if (paymentMethod === 'Crédito') {
       document.getElementById('btn-close-inventory-history').onclick = () => document.getElementById('modal-inventory-history').classList.add('hidden');
 
       const loadProducts = async () => {
-        const { data } = await supabase.from('products').select('*').eq('business_id', currentBusinessId);
+        const { data } = await neon.from('products').select('*').eq('business_id', currentBusinessId);
         if (data) {
           inventorySnapshot = data;
           renderInventoryTable(inventorySnapshot);
@@ -2936,13 +3046,13 @@ if (paymentMethod === 'Crédito') {
         };
 
         if (id) {
-          await supabase.from('products').update(payload).eq('id', id);
+          await neon.from('products').update(payload).eq('id', id);
           const stockBefore = existingProd ? existingProd.stock : 0;
           if (payload.stock !== stockBefore) {
             await logInventoryMovement(id, payload.name, 'ajuste', payload.stock - stockBefore, stockBefore, payload.stock, 'Ajuste manual desde edición de producto');
           }
         } else {
-          const { data: newProd } = await supabase.from('products').insert([payload]).select().single();
+          const { data: newProd } = await neon.from('products').insert([payload]).select().single();
           if (newProd) {
             await logInventoryMovement(newProd.id, payload.name, 'entrada', payload.stock, 0, payload.stock, 'Registro inicial de producto');
           }
@@ -3044,7 +3154,7 @@ function renderInventoryTable(products) {
     }
 
     async function initReports() {
-      const { data } = await supabase.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
+      const { data } = await neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
       if (data) {
         salesHistory = data;
         calculateFinancialDashboard();
@@ -3053,7 +3163,7 @@ function renderInventoryTable(products) {
 
     document.getElementById('btn-logout').onclick = () => {
       userRequestedLogout = true;
-      supabase.auth.signOut();
+      neon.auth.signOut();
     };
   </script>
 </body>
