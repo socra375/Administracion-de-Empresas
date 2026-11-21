@@ -593,11 +593,49 @@ async function checkDatabaseIdentity(userId) {
   try {
     const { data, error } = await neon.rpc('whoami');
     console.info('whoami:', data, error);
+    reportDiag('login_whoami', { whoami: data || null, whoamiError: error?.message || null });
     if (error) return;
     if (!data?.auth_uid || data.auth_uid !== userId) {
       toast.err(`La base de datos no reconoce tu sesión (te ve como ${data?.auth_uid || 'nadie'}). Cierra sesión y vuelve a entrar; si sigue igual, avísanos.`);
     }
   } catch (e) { console.error('whoami:', e); }
+}
+
+// ---------- Diagnóstico y reintento ante rechazos de las reglas de seguridad ----------
+// A veces la PRIMERA escritura después de entrar llega a la base sin que ésta reconozca la
+// identidad (la base la rechaza con "row-level security") y la siguiente funciona. Mientras se
+// investiga la causa: se deja constancia en la base (public.report_diag: qué identidad vio la
+// base y qué token tenía la sesión) y se reintenta una vez, tras una breve espera, para que la
+// persona no tenga que repetir la acción. Una escritura rechazada por seguridad no guarda nada,
+// así que reintentar no duplica datos.
+function decodeJwtClaims(token) {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const c = JSON.parse(atob(payload));
+    return { sub: c.sub, iat: c.iat, exp: c.exp, role: c.role };
+  } catch (e) { return null; }
+}
+async function reportDiag(event, extra = {}) {
+  try {
+    const { data: { session } } = await neon.auth.getSession();
+    await neon.rpc('report_diag', { p: {
+      event, userId: session?.user?.id || null, businessId: currentBusinessId,
+      claims: session?.access_token ? decodeJwtClaims(session.access_token) : null,
+      clientNow: Math.floor(Date.now() / 1000), page: window.location.hostname,
+      ua: navigator.userAgent.slice(0, 120), ...extra
+    } });
+  } catch (e) { /* el diagnóstico nunca debe romper la acción */ }
+}
+const isRlsError = (err) => /row-level security/i.test(err?.message || '');
+async function writeWithRetry(label, doWrite) {
+  let res = await doWrite();
+  if (res?.error && isRlsError(res.error)) {
+    await reportDiag('rls_rejected', { label, message: res.error.message });
+    await new Promise(r => setTimeout(r, 800));
+    res = await doWrite();
+    await reportDiag(res?.error ? 'rls_retry_failed' : 'rls_retry_ok', { label, message: res?.error?.message || null });
+  }
+  return res;
 }
 
 neon.auth.onAuthStateChange(async (event, session) => {
@@ -882,15 +920,12 @@ async function initCustomersAndCredits() {
     const submit = e.currentTarget.querySelector('button[type=submit]');
     await withBusy(submit, 'Guardando…', async () => {
       const name = $('cust-name').value.trim();
-      const { error } = await neon.from('customers').insert([{
+      const { error } = await writeWithRetry('customers.insert', () => neon.from('customers').insert([{
         business_id: currentBusinessId,
         name,
         phone: $('cust-phone').value
-      }]);
-      if (error) {
-        if (/row-level security/i.test(error.message || '')) { const { data: who } = await neon.rpc('whoami'); console.error('Cliente rechazado por RLS. whoami:', who, 'negocio:', currentBusinessId); }
-        return toast.err("No se pudo guardar el cliente: " + error.message);
-      }
+      }]));
+      if (error) return toast.err("No se pudo guardar el cliente: " + error.message);
       $('customer-form').reset();
       closeModal('modal-customer-new');
       toast.ok(`Cliente «${name}» guardado.`);
@@ -2552,14 +2587,14 @@ async function initInventory() {
       };
 
       if (id) {
-        const { error } = await neon.from('products').update(payload).eq('id', id);
+        const { error } = await writeWithRetry('products.update', () => neon.from('products').update(payload).eq('id', id));
         if (error) return toast.err("No se pudo guardar el producto: " + error.message);
         const stockBefore = existingProd ? existingProd.stock : 0;
         if (payload.stock !== stockBefore) {
           await logInventoryMovement(id, payload.name, 'ajuste', payload.stock - stockBefore, stockBefore, payload.stock, 'Ajuste manual desde edición de producto');
         }
       } else {
-        const { data: newProd, error } = await neon.from('products').insert([payload]).select().single();
+        const { data: newProd, error } = await writeWithRetry('products.insert', () => neon.from('products').insert([payload]).select().single());
         if (error) return toast.err("No se pudo guardar el producto: " + error.message);
         if (newProd) {
           await logInventoryMovement(newProd.id, payload.name, 'entrada', payload.stock, 0, payload.stock, 'Registro inicial de producto');
