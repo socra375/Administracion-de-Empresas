@@ -15,7 +15,7 @@ body.landing { min-height: 100dvh; display: flex; flex-direction: column;
 /* ---------- Cabecera ---------- */
 .lp-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; }
 .lp-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
-.lp-brand img { width: 36px; height: 36px; border-radius: 10px; }
+.lp-brand img { display: block; width: auto; height: 68px; border-radius: 14px; }
 .lp-actions { display: flex; align-items: center; gap: 8px; }
 
 /* ---------- Primera pantalla ---------- */
@@ -85,6 +85,7 @@ body.landing { min-height: 100dvh; display: flex; flex-direction: column;
 }
 @media (max-width: 600px) {
   .wrap { padding: 0 16px; }
+  .lp-brand img { height: 52px; }
   .lp-lead { font-size: 16.5px; }
   .lp-cta .btn { flex: 1; }
   .pv-body { grid-template-columns: 1fr; }
