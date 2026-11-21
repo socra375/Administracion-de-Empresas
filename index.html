@@ -139,6 +139,21 @@
   .app__pane--open .ui-doc { width: 100%; height: 100%; padding: 32px 32px 0; }
   .app__pane--open .ui-doc__page { flex: 1; }
   @media (min-width: 1024px) { .app__pane--open .ui-doc { padding-right: 248px; } .app__pane--open .ui-doc__note { right: 32px; top: 32px; } }
+  /* teléfono: la ventana del héroe muestra solo la venta; la nota del estado de cuenta pasa arriba */
+  @media (max-width: 639px) {
+    .hero__window .d-win--dark .d-win__body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .hero__window .inbox { display: none; }
+    .app__pane--open .ui-doc { padding: 16px 16px 0; }
+    .app__pane--open .ui-doc__note { position: static; width: auto; order: -1; margin: 0 0 12px; opacity: 1; transform: none; }
+    .nav:not(.is-open) .nav__actions .btn { display: none; }
+    #preguntas .faq { margin-top: var(--s-5); }
+    .link, .footer__col a { display: inline-flex; align-items: center; min-height: 44px; }
+    .footer__col ul { gap: 0; }
+    .footer__lede { display: none; }
+    /* en el teléfono una sección crece si su contenido lo pide: nunca se solapa en pantallas bajas */
+    main > :is(section, .section):not(.hero, .section--hero), footer.closing { height: auto; min-height: calc(var(--hm, var(--h, 1)) * 100lvh); display: flex; flex-direction: column; }
+    main > :is(section, .section):not(.hero, .section--hero) > :is(.wrap, .container), footer.closing > .wrap { flex: 1 0 auto; height: auto; min-height: 0; }
+  }
   #funciones .panel { --p-h: 336px; }
   @media (min-width: 1024px) and (max-width: 1279px) { #funciones .panel { --p-h: 316px; } }
   @media (max-width: 639px) { #funciones .panel { --p-h: 264px; } }
@@ -455,8 +470,8 @@
           <p class="footer__lede">Ventas, inventario y cuentas por cobrar para pequeños negocios.</p>
         </div>
         <div class="span-2 footer__col"><h4>Producto</h4><ul><li><a href="#cuentas">Cuentas por cobrar</a></li><li><a href="#funciones">Funciones</a></li><li><a href="#equipo">Equipo</a></li></ul></div>
-        <div class="span-2 footer__col"><h4>Probar</h4><ul><li><a href="app.html?demo=1">Ver la demostración</a></li><li><a href="app.html">Entrar a la app</a></li></ul></div>
-        <div class="span-2 footer__col"><h4>Ayuda</h4><ul><li><a href="#preguntas">Preguntas</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Ayuda</h4><ul><li><a href="#preguntas">Preguntas</a></li><li><a href="app.html?demo=1">Ver la demostración</a></li><li><a href="app.html">Entrar a la app</a></li></ul></div>
+        </div>
       </div>
       <div class="footer__legal">
         <span>&copy; 2026 AINova Management</span>
@@ -464,6 +479,10 @@
     </div>
   </div>
 </footer>
+
+<nav class="actionbar" aria-label="Acción principal">
+  <a class="btn btn--primary" href="app.html">Entrar a la app</a>
+</nav>
 
 <script type="module" src="assets/system.js"></script>
 <script type="module" src="assets/motion/motion.js"></script>
