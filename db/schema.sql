@@ -25,13 +25,16 @@ grant usage on schema private to authenticated;
 -- Quién es el usuario de la petición. TODAS las reglas lo preguntan aquí en vez de llamar a
 -- auth.uid() directamente: es un único punto para definir la identidad, y permite probar
 -- las políticas reales simulando usuarios sin tocar el esquema "auth", que es de Neon.
+-- SECURITY DEFINER es imprescindible: el rol "authenticated" (el de la API de datos) no tiene
+-- permiso sobre el esquema "auth", y sin esto TODA escritura protegida falla con "permission
+-- denied for schema auth". auth.uid() lee el token de la petición (no depende de quién ejecuta).
 create or replace function private.current_user_id()
 returns uuid
-language sql stable
+language sql stable security definer
 set search_path = ''
 as $$ select auth.uid() $$;
 revoke all on function private.current_user_id() from public;
-grant execute on function private.current_user_id() to authenticated;
+grant execute on function private.current_user_id() to authenticated, anonymous;
 
 -- ---------------------------------------------------------------------------------------
 -- Tablas
