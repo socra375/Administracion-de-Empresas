@@ -1,0 +1,64 @@
+/* =====================================================================
+   AINova · capa de movimiento de la app
+   Solo transform y opacity (se mueven en la GPU), entre 120 y 380 ms, con una sola curva de
+   salida suave. Nada se mueve por scroll ni se repite solo: cada animación responde a una
+   acción de la persona (cambiar de sección, tocar un botón, abrir una ventana).
+   Con prefers-reduced-motion la regla global de ds.css las reduce a un instante.
+   ===================================================================== */
+:root {
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+  --ease-io: cubic-bezier(.65, 0, .35, 1);
+}
+
+/* ---- Cambio de sección: aparece con un fundido y sus bloques suben escalonados ------------ */
+.view-module:not(.hidden) { animation: view-in .26s var(--ease-out) backwards; }
+@keyframes view-in { from { opacity: 0; } to { opacity: 1; } }
+
+.view-module:not(.hidden) .kpi,
+.view-module:not(.hidden) .page-head,
+.view-module:not(.hidden) .toolbar,
+.view-module:not(.hidden) .card,
+.view-module:not(.hidden) .settings-list-item { animation: rise-in .38s var(--ease-out) backwards; animation-delay: calc(var(--n, 0) * 40ms); }
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+/* Índice de escalón: los primeros ocho hermanos entran en cascada, el resto a la vez. */
+.view-module .kpi:nth-child(2), .view-module .card:nth-child(2), .view-module .settings-list-item:nth-child(2) { --n: 1; }
+.view-module .kpi:nth-child(3), .view-module .card:nth-child(3), .view-module .settings-list-item:nth-child(3) { --n: 2; }
+.view-module .kpi:nth-child(4), .view-module .card:nth-child(4), .view-module .settings-list-item:nth-child(4) { --n: 3; }
+.view-module .kpi:nth-child(5), .view-module .card:nth-child(5), .view-module .settings-list-item:nth-child(5) { --n: 4; }
+.view-module .kpi:nth-child(6), .view-module .card:nth-child(6), .view-module .settings-list-item:nth-child(6) { --n: 5; }
+.view-module .kpi:nth-child(n+7), .view-module .card:nth-child(n+7), .view-module .settings-list-item:nth-child(n+7) { --n: 6; }
+/* El tutorial mide dónde está cada elemento: durante el recorrido nada se desplaza. */
+body.tour-on .view-module, body.tour-on .view-module * { animation: none !important; }
+
+/* ---- Menú lateral: la barra de la sección activa crece al llegar ------------------------- */
+.sb-item.active::before { transform-origin: center; animation: bar-in .32s var(--ease-out) backwards; }
+@keyframes bar-in { from { transform: scaleY(.2); opacity: 0; } to { transform: none; opacity: 1; } }
+.sb-item .i { transition: transform .2s var(--ease-out); }
+@media (hover: hover) { .sb-item:hover .i { transform: translateX(2px); } }
+
+/* ---- Botones y tarjetas que responden al puntero ------------------------------------------ */
+@media (hover: hover) {
+  .btn:not([disabled]):hover { transform: translateY(-1px); }
+  .btn-primary:not([disabled]):hover { box-shadow: 0 6px 16px -8px var(--primary); }
+  .pos-item:hover { transform: translateY(-2px); box-shadow: var(--shadow-md, 0 8px 20px -12px rgb(0 0 0 / .25)); }
+  .settings-list-item:hover .chev { transform: translateX(3px); }
+  .kpi:hover { transform: translateY(-2px); }
+}
+.btn:not([disabled]):active, .pos-item:active { transform: translateY(0) scale(.985); transition-duration: .08s; }
+.pos-item, .kpi { transition: transform .2s var(--ease-out), box-shadow .2s var(--ease-out), border-color .15s ease, background-color .15s ease; }
+.settings-list-item .chev { transition: transform .2s var(--ease-out); }
+
+/* ---- Interruptores y casillas ------------------------------------------------------------- */
+.switch span::after { transition: transform .22s var(--ease-out), width .12s ease; }
+.switch:active span::after { width: 22px; }
+
+/* ---- Ventanas y menús: la entrada ya existe (ds.css); aquí su suavidad de salida --------- */
+.modal-card { animation-timing-function: var(--ease-out); }
+.popover { transform-origin: top right; }
+
+/* ---- Pasos del asistente de configuración ------------------------------------------------ */
+.wiz-step.is-current { animation: step-in .36s var(--ease-out) backwards; }
+@keyframes step-in { from { opacity: 0; transform: translateX(14px); } to { opacity: 1; transform: none; } }
+
+/* ---- Barras de progreso: crecen en lugar de saltar ---------------------------------------- */
+.progress > i { transition: width .5s var(--ease-out); }
