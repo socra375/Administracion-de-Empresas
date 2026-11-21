@@ -790,7 +790,7 @@ function startSystemModules() {
 }
 
 function applyLogoToHeader() {
-  const logoSrc = currentBusinessData?.logo_url || 'logo.svg';
+  const logoSrc = currentBusinessData?.logo_url || 'logo.png';
   $('header-logo-img').src = logoSrc;
   document.querySelector('.topbar-logo').src = logoSrc;
   $('cfg-logo-preview').src = logoSrc;
@@ -2009,7 +2009,7 @@ function loadSettingsIntoForm() {
 
   $('cfg-global-low-stock').checked = b.global_low_stock_alert !== false;
 
-  $('cfg-logo-preview').src = b.logo_url || 'logo.svg';
+  $('cfg-logo-preview').src = b.logo_url || 'logo.png';
   logoMarkedForRemoval = false;
 }
 
@@ -2019,7 +2019,7 @@ $('btn-remove-logo').onclick = async () => {
   if (!ok) return;
   logoMarkedForRemoval = true;
   $('cfg-logo-file').value = '';
-  $('cfg-logo-preview').src = 'logo.svg';
+  $('cfg-logo-preview').src = 'logo.png';
 };
 
 // El logo se reduce a 256 px y se guarda como imagen incrustada en la propia fila del
