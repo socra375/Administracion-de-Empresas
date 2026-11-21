@@ -525,3 +525,17 @@ as $$ select jsonb_build_object(
   'has_access_to_own_business', private.has_business_access(private.current_user_id())) $$;
 revoke all on function public.whoami() from public;
 grant execute on function public.whoami() to authenticated, anonymous;
+
+-- ---------------------------------------------------------------------------------------
+-- Diagnóstico temporal (quitar cuando se resuelva la intermitencia de "row-level security"
+-- en la primera escritura tras entrar): la app deja aquí qué identidad vio la base.
+-- ---------------------------------------------------------------------------------------
+create table if not exists private.diag_log (id bigserial primary key, at timestamptz not null default now(), data jsonb not null);
+create or replace function public.report_diag(p jsonb) returns void language plpgsql security definer set search_path = '' as $$
+begin
+  if p is null or length(p::text) > 4000 then return; end if;
+  if (select count(*) from private.diag_log where at > now() - interval '1 minute') > 60 then return; end if;
+  insert into private.diag_log(data) values (jsonb_build_object('client', p, 'auth_uid', auth.uid(), 'jwt_sub', auth.jwt()->>'sub', 'jwt_role', auth.jwt()->>'role', 'jwt_iat', auth.jwt()->>'iat', 'jwt_exp', auth.jwt()->>'exp', 'now', extract(epoch from now())::bigint, 'session_user', session_user));
+end $$;
+revoke all on function public.report_diag(jsonb) from public;
+grant execute on function public.report_diag(jsonb) to authenticated, anonymous;
