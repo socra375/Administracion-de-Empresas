@@ -57,7 +57,10 @@ create table public.businesses (
   tax_percentage numeric default 0,
   tax_included_in_price boolean default false,
   payment_methods jsonb,
-  global_low_stock_alert boolean default true
+  global_low_stock_alert boolean default true,
+  -- Preferencias del negocio (configuración inicial): actividad, descripción, colores de marca,
+  -- región (país, formato de fecha, zona horaria) y módulos activos.
+  settings jsonb not null default '{}'::jsonb
 );
 
 create table public.business_members (

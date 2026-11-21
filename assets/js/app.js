@@ -12,10 +12,16 @@
 // (íconos, avisos, ventanas, formato) viven en ui.js.
 // =====================================================================
 import {
-  escapeHtml, ico, setCurrency, money, fmtNum, initials, timeAgo,
+  escapeHtml, ico, setCurrency, setRegional, fmtDate, fmtDateTime, fmtYmd, money, fmtNum, initials, timeAgo,
   toast, openModal, closeModal, closeAllModals, confirmDialog,
   emptyState, skeletonRows, withBusy, chartPalette
 } from './ui.js';
+import { createDemoBackend, DEMO_BUSINESS_ID, DEMO_USER_ID, DEMO_EMAIL } from './demo.js';
+import { createTour, showWelcome, showComplete, tourState } from './tour.js';
+import {
+  applyBrand, moduleEnabled, generalFields, brandFields, regionalFields, moduleFields,
+  readPrefs, wireBrandFields, wireCountry, CURRENCIES, MODULES
+} from './prefs.js';
 
 // -------------------------------------------------------------
 // 0. PERSONALIZACIÓN: fondo de pantalla (preferencia por dispositivo, en localStorage).
@@ -67,7 +73,31 @@ try {
 // de autenticación y la de la API de datos. No hay claves en el navegador: la seguridad
 // la ponen las reglas de la base (RLS, ver db/schema.sql) y el token de cada usuario.
 const NEON_URL = "https://ep-old-credit-bc1j2pi5.c-16.us-east-1.aws.neon.tech/neondb";
-const neon = window.NeonSupabase.createClient(NEON_URL);
+const realNeon = window.NeonSupabase.createClient(NEON_URL);
+
+// ---- Modo demostración (?demo=1) ----
+// En la demostración TODAS las lecturas y escrituras de datos van a una base en memoria
+// (assets/js/demo.js): nunca llegan a Neon. La demo vive en su propia carga de página, así que
+// es imposible que se mezcle con los datos reales (al salir se recarga la página).
+const pageParams = new URLSearchParams(window.location.search);
+const demoMode = pageParams.get('demo') === '1';
+const demoBackend = demoMode ? createDemoBackend() : null;
+const demoAuth = {
+  getUser: async () => ({ data: { user: { id: DEMO_USER_ID, email: DEMO_EMAIL } }, error: null }),
+  getSession: async () => ({ data: { session: null }, error: null }),
+  onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+  signOut: async () => ({ error: null }),
+  signInWithOAuth: async () => ({ error: { message: 'No disponible en la demostración.' } }),
+  signUp: async () => ({ error: { message: 'No disponible en la demostración.' } }),
+  signInWithPassword: async () => ({ error: { message: 'No disponible en la demostración.' } }),
+  resetPasswordForEmail: async () => ({ error: { message: 'No disponible en la demostración.' } })
+};
+const neon = {
+  from: (table) => (demoMode ? demoBackend : realNeon).from(table),
+  rpc: (fn, args) => (demoMode ? demoBackend : realNeon).rpc(fn, args),
+  removeAllChannels: () => realNeon.removeAllChannels?.(),
+  auth: demoMode ? demoAuth : realNeon.auth
+};
 
 // -------------------------------------------------------------
 // 2. ESTADO GLOBAL
@@ -96,7 +126,11 @@ let lastDash = null; // últimos datos del dashboard, para redibujar los gráfic
 function setBusiness(b) {
   currentBusinessData = b;
   setCurrency(b?.currency_symbol);
+  const st = b?.settings || {};
+  setRegional({ dateFormat: st.date_format, timeZone: st.timezone });
+  applyBrand(demoMode ? null : st.brand);   // colores del negocio (la demo usa los de AINova)
 }
+const businessName = () => currentBusinessData?.settings?.trade_name || currentBusinessData?.name || 'Mi Negocio';
 const isAdmin = () => currentUserRole === 'admin';
 const $ = (id) => document.getElementById(id);
 const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -107,7 +141,9 @@ const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion:
 // Una sola lista define qué secciones existen y quién las ve. Reproduce exactamente los
 // permisos de antes: el admin ve todo (Equipo solo en negocios de grupo); un empleado ve
 // Ventas, Inventario y Clientes, más Dashboard / Facturas si el admin se los otorgó.
-const NAV_ITEMS = [
+const MODULE_OF = { 'sec-sales': 'sales', 'sec-inventory': 'inventory', 'sec-customers': 'customers', 'sec-receivables': 'receivables', 'sec-reports': 'reports', 'sec-employees': 'employees' };
+const moduleOn = (sectionId) => !MODULE_OF[sectionId] || moduleEnabled(currentBusinessData?.settings, MODULE_OF[sectionId]);
+const NAV_ITEMS_BASE = [
   { id: 'sec-dashboard',   label: 'Dashboard',          short: 'Inicio',     icon: 'dashboard', group: 'Operación',
     allowed: () => isAdmin() || !!currentUserPermissions.ver_dashboard },
   { id: 'sec-sales',       label: 'Punto de venta',     short: 'Vender',     icon: 'cart',      group: 'Operación', allowed: () => true },
@@ -120,6 +156,8 @@ const NAV_ITEMS = [
     allowed: () => isAdmin() && currentBusinessData?.business_type === 'group' },
   { id: 'sec-settings',    label: 'Configuración',      short: 'Ajustes',    icon: 'settings',  group: 'Cuenta',    allowed: () => true }
 ];
+// Un módulo que el negocio desactivó en sus preferencias no aparece (los datos no se tocan).
+const NAV_ITEMS = NAV_ITEMS_BASE.map((n) => ({ ...n, allowed: () => n.allowed() && moduleOn(n.id) }));
 const MOBILE_PRIORITY = ['sec-dashboard', 'sec-sales', 'sec-inventory', 'sec-customers', 'sec-receivables'];
 const modules = document.querySelectorAll('.view-module');
 
@@ -198,6 +236,7 @@ document.querySelectorAll('.radio-card[data-type]').forEach(card => {
     const target = e.currentTarget;
     target.classList.add('selected');
     selectedBusinessType = target.dataset.type;
+    if (typeof renderWizModules === 'function') renderWizModules();
 
     const teamContainer = $('team-size-container');
     if (selectedBusinessType === 'group') {
@@ -723,10 +762,12 @@ neon.auth.onAuthStateChange(async (event, session) => {
 
       // FLUJO ONBOARDING & ROLES
       if (currentUserRole === 'admin' && (!currentBusinessData || !currentBusinessData.onboarding_completed)) {
-        $('onboarding-screen').classList.remove('hidden');
+        enterFirstRun(userId);   // bienvenida + tutorial la primera vez, y luego el asistente
       } else {
         setupRoleInterface();
         startSystemModules();
+        boot.hide();
+        handleGotoParam();
       }
     }, 400);
 
@@ -743,6 +784,7 @@ neon.auth.onAuthStateChange(async (event, session) => {
     $('app-shell').classList.add('hidden');
     modules.forEach(m => m.classList.add('hidden'));
     document.title = 'AINova Management';
+    boot.hide();
 
     // Quien acaba de pulsar "Salir" vuelve a la presentación, no se queda en la
     // pantalla de acceso: al cerrar sesión deja de ser alguien de dentro.
@@ -760,51 +802,7 @@ neon.auth.onAuthStateChange(async (event, session) => {
   }
 });
 
-// Guardar Onboarding
-$('onboarding-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const bName = $('onb-business-name').value.trim();
-  const teamSizeVal = parseInt($('onb-team-size').value) || null;
-
-  if (!bName) return toast.err("Por favor ingresa un nombre.");
-
-  if (selectedBusinessType === 'group') {
-    // Primero el negocio (la fila de admin depende de él), luego el admin
-    const { error: bizErr } = await neon.from('businesses').upsert({
-      id: currentBusinessId,
-      name: bName,
-      business_type: 'group',
-      team_size: teamSizeVal,
-      onboarding_completed: true
-    });
-    if (bizErr) return toast.err("No se pudo guardar tu negocio: " + bizErr.message);
-
-    // Insertar en business_members como admin
-    const { error: memErr } = await neon.from('business_members').upsert([{
-      business_id: currentBusinessId,
-      user_id: currentBusinessId,
-      role: 'admin'
-    }]);
-    if (memErr) return toast.err("No se pudo registrar tu usuario como administrador: " + memErr.message);
-    setBusiness({ ...(currentBusinessData || {}), id: currentBusinessId, name: bName, business_type: 'group', team_size: teamSizeVal, onboarding_completed: true });
-
-    $('onboarding-screen').classList.add('hidden');
-    openModal('modal-forced-password');
-  } else {
-    const { error: bizErr } = await neon.from('businesses').upsert({
-      id: currentBusinessId,
-      name: bName,
-      business_type: 'individual',
-      onboarding_completed: true
-    });
-    if (bizErr) return toast.err("No se pudo guardar tu negocio: " + bizErr.message);
-    setBusiness({ ...(currentBusinessData || {}), id: currentBusinessId, name: bName, business_type: 'individual', onboarding_completed: true });
-
-    $('onboarding-screen').classList.add('hidden');
-    setupRoleInterface();
-    startSystemModules();
-  }
-});
+// (El guardado de la configuración inicial vive en el asistente por pasos: ver sección 10.)
 
 // Forzado de contraseña en onboarding de grupo
 $('btn-save-forced-password').onclick = async () => {
@@ -815,18 +813,17 @@ $('btn-save-forced-password').onclick = async () => {
   toast.ok(`Te enviamos un enlace a ${email} para crear tu contraseña. Ábrelo cuando puedas; mientras tanto ya puedes entrar.`);
 
   closeModal('modal-forced-password');
-  setupRoleInterface();
-  startSystemModules();
+  enterApp();
 };
 
 function setupRoleInterface() {
-  const name = currentBusinessData?.name || 'Mi Negocio';
+  const name = businessName();
   $('business-display-name').textContent = name;
   $('user-role-badge').textContent = isAdmin() ? 'Admin' : 'Empleado';
   $('user-avatar').textContent = initials(name);
   $('user-chip-role').textContent = isAdmin() ? 'Administrador' : 'Empleado';
   $('user-chip-name').textContent = name;
-  currentUserEmail().then(email => { if (email) $('user-chip-name').textContent = email.split('@')[0]; }).catch(() => {});
+  if (!demoMode) currentUserEmail().then(email => { if (email) $('user-chip-name').textContent = email.split('@')[0]; }).catch(() => {});
   $('page-date').textContent = new Date().toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
 
   $('app-shell').classList.remove('hidden');
@@ -837,18 +834,23 @@ function setupRoleInterface() {
   showModuleSection(isAdmin() ? 'sec-dashboard' : 'sec-sales');
 }
 
-function startSystemModules() {
-  if (!modulesInitialized) {
-    initInventory();
-    initSales();
-    initReports();
-    initCustomersAndCredits();
-    initEmployeeManagement();
-    initInvoices();
-    applyLogoToHeader();
-    renderPayMethods();
-    modulesInitialized = true;
-  }
+// Arranca los módulos y devuelve una promesa que se cumple cuando sus datos están cargados.
+// onProgress(hechos, total, etiqueta) se llama cada vez que termina una carga REAL.
+async function startSystemModules(onProgress) {
+  if (modulesInitialized) return;
+  const tasks = [
+    ['Productos y existencias', initInventory()],
+    (initSales(), null),
+    ['Ventas y reportes', initReports()],
+    ['Clientes y créditos', initCustomersAndCredits()],
+    ['Equipo', initEmployeeManagement()],
+    ['Facturas', initInvoices()]
+  ].filter(Boolean);
+  applyLogoToHeader();
+  renderPayMethods();
+  modulesInitialized = true;
+  let done = 0;
+  await Promise.all(tasks.map(([label, promise]) => Promise.resolve(promise).then(() => { done++; onProgress?.(done, tasks.length, label); })));
 }
 
 function applyLogoToHeader() {
@@ -876,9 +878,7 @@ const pendingOf = (cr) => parseFloat(cr.amount) - parseFloat(cr.amount_paid);
 
 // Formatea una fecha "YYYY-MM-DD" (sin hora) evitando el corrimiento de zona horaria
 function formatDateOnly(dateStr) {
-  if (!dateStr) return '—';
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString();
+  return fmtYmd(dateStr);
 }
 
 // true si hoy ya pasó la fecha límite (pagar el mismo día cuenta como a tiempo)
@@ -1058,7 +1058,7 @@ function renderReceivables() {
     const name = customerName(cr.customer_id);
     return `<tr>
       <td class="cell-main"><div class="cell-person"><span class="avatar">${escapeHtml(initials(name))}</span><b>${escapeHtml(name)}</b></div></td>
-      <td data-label="Fecha">${new Date(cr.created_at).toLocaleDateString()}</td>
+      <td data-label="Fecha">${fmtDate(cr.created_at)}</td>
       <td data-label="Vence" style="${st.key === 'overdue' ? 'color:var(--danger-ink);font-weight:600' : ''}">${formatDateOnly(cr.due_date)}</td>
       <td class="num" data-label="Monto">${money(total)}</td>
       <td class="num" data-label="Abonado">${money(paid)}</td>
@@ -1105,7 +1105,7 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
   tbody.innerHTML = clientCredits.length ? clientCredits.map(cr => {
     const st = creditState(cr);
     return `<tr>
-      <td class="cell-main">${new Date(cr.created_at).toLocaleDateString()}</td>
+      <td class="cell-main">${fmtDate(cr.created_at)}</td>
       <td data-label="Vence">${formatDateOnly(cr.due_date)}</td>
       <td class="num" data-label="Monto">${money(cr.amount)}</td>
       <td class="num" data-label="Abonado">${money(cr.amount_paid)}</td>
@@ -1129,7 +1129,7 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
   $('account-invoices-list').innerHTML = events.length ? events.map(ev => `
     <${ev.invoiceId ? 'button type="button" data-invoice="' + ev.invoiceId + '"' : 'div'} class="activity-item" style="${ev.invoiceId ? 'width:100%;background:none;border-left:0;border-right:0;border-top:0;text-align:left;cursor:pointer;color:inherit;font:inherit' : ''}">
       <span class="activity-ico ${ev.tone}">${ico(ev.icon)}</span>
-      <span class="activity-main"><b>${escapeHtml(ev.title)}</b><small>${escapeHtml(ev.sub)} · ${new Date(ev.at).toLocaleDateString()}</small></span>
+      <span class="activity-main"><b>${escapeHtml(ev.title)}</b><small>${escapeHtml(ev.sub)} · ${fmtDate(ev.at)}</small></span>
       <span class="activity-amount">${ev.amount}</span>
     </${ev.invoiceId ? 'button' : 'div'}>`).join('')
     : emptyState({ icon: 'history', title: 'Sin movimientos', text: 'Aquí verás las compras, facturas y abonos del cliente.' });
@@ -1144,7 +1144,7 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
     const opt = document.createElement('option');
     opt.value = cr.id;
     const lateTag = (cr.due_date && !cr.late_fee_applied && isPastDueDate(cr.due_date)) ? ' · vencido (+10% mora)' : '';
-    opt.textContent = `Crédito ${new Date(cr.created_at).toLocaleDateString()} · pendiente ${money(pendingOf(cr))}${lateTag}`;
+    opt.textContent = `Crédito ${fmtDate(cr.created_at)} · pendiente ${money(pendingOf(cr))}${lateTag}`;
     creditSelect.appendChild(opt);
   });
   if (preselectCreditId && openCredits.some(c => c.id === preselectCreditId)) creditSelect.value = preselectCreditId;
@@ -1523,7 +1523,7 @@ function initEmployeeManagement() {
 
       if (error) toast.err("Error generando código: " + error.message);
       else {
-        const link = `${siteBaseUrl()}?invite=${code}`;
+        const link = demoMode ? 'Enlace de demostración: no es válido' : `${siteBaseUrl()}?invite=${code}`;
         $('lbl-generated-link').textContent = link;
         $('lbl-generated-code').textContent = code;
         $('invite-code-display').classList.remove('hidden');
@@ -1544,8 +1544,7 @@ function initEmployeeManagement() {
   };
 
   $('employees-table-body').innerHTML = skeletonRows(7);
-  loadEmployeesList();
-  loadInvites();
+  return Promise.all([loadEmployeesList(), loadInvites()]);
 }
 
 // Invitaciones emitidas y su estado (solo las ve el admin; la regla de la base lo exige)
@@ -1557,7 +1556,7 @@ async function loadInvites() {
   box.innerHTML = list.length ? list.map(inv => {
     const expired = !inv.used && inv.expires_at && new Date(inv.expires_at) < new Date();
     const badge = inv.used ? '<span class="badge badge-ok">Usada</span>' : expired ? '<span class="badge badge-danger">Vencida</span>' : '<span class="badge badge-warn">Pendiente</span>';
-    return `<div class="invite-row"><div><code>${escapeHtml(inv.code)}</code><small>Creada ${new Date(inv.created_at).toLocaleDateString()}${inv.used ? '' : ` · vence ${new Date(inv.expires_at).toLocaleDateString()}`}</small></div>${badge}</div>`;
+    return `<div class="invite-row"><div><code>${escapeHtml(inv.code)}</code><small>Creada ${fmtDate(inv.created_at)}${inv.used ? '' : ` · vence ${fmtDate(inv.expires_at)}`}</small></div>${badge}</div>`;
   }).join('') : '<p class="hint">Todavía no has generado invitaciones.</p>';
 }
 
@@ -1582,7 +1581,7 @@ async function loadEmployeesList() {
         <td data-label="Cargo"><input type="text" class="input-role-title" data-id="${m.id}" value="${escapeHtml(m.role_title)}" placeholder="Ej: Cajero" maxlength="50" aria-label="Cargo"></td>
         <td data-label="Ver Dashboard"><label class="switch"><input type="checkbox" class="chk-perm-dashboard" data-id="${m.id}" ${perms.ver_dashboard ? 'checked' : ''} aria-label="Puede ver el Dashboard"><span></span></label></td>
         <td data-label="Ver Facturas"><label class="switch"><input type="checkbox" class="chk-perm-reportes" data-id="${m.id}" ${perms.ver_reportes ? 'checked' : ''} aria-label="Puede ver las Facturas"><span></span></label></td>
-        <td data-label="Agregado">${new Date(m.created_at).toLocaleDateString()}</td>
+        <td data-label="Agregado">${fmtDate(m.created_at)}</td>
         <td class="cell-actions"><button type="button" class="btn-remove-employee btn btn-sm btn-danger" data-id="${m.id}" data-name="${escapeHtml(m.employee_name || 'este empleado')}">${ico('trash', 'i-sm')}Eliminar</button></td>
       `;
       tbody.appendChild(tr);
@@ -2034,7 +2033,7 @@ async function loadActivityLog() {
   if (data && data.length) {
     data.forEach(log => {
       const tr = document.createElement('tr');
-      tr.innerHTML = `<td class="cell-main">${escapeHtml(log.user_name || 'Sistema')}</td><td data-label="Acción">${escapeHtml(log.action)}${describeChanges(log.old_values, log.new_values)}</td><td data-label="Fecha y hora">${new Date(log.created_at).toLocaleString()}</td>`;
+      tr.innerHTML = `<td class="cell-main">${escapeHtml(log.user_name || 'Sistema')}</td><td data-label="Acción">${escapeHtml(log.action)}${describeChanges(log.old_values, log.new_values)}</td><td data-label="Fecha y hora">${fmtDateTime(log.created_at)}</td>`;
       tbody.appendChild(tr);
     });
   } else {
@@ -2052,7 +2051,9 @@ function loadSettingsIntoForm() {
   $('cfg-tax-id').value = b.tax_id || '';
   $('cfg-phone').value = b.phone || '';
   $('cfg-address').value = b.address || '';
+  populateCurrencyOptions(b.currency_symbol || '$');
   $('cfg-currency-symbol').value = b.currency_symbol || '$';
+  renderPrefsForm();
 
   const taxEnabled = b.tax_enabled || false;
   $('cfg-tax-enabled').checked = taxEnabled;
@@ -2145,8 +2146,8 @@ $('form-cfg-business').addEventListener('submit', async (e) => {
 
     setBusiness({ ...currentBusinessData, ...updates });
     logoMarkedForRemoval = false;
-    $('business-display-name').textContent = updates.name;
-    $('user-avatar').textContent = initials(updates.name);
+    $('business-display-name').textContent = businessName();
+    $('user-avatar').textContent = initials(businessName());
     applyLogoToHeader();
     await logActivity('Actualizó los datos del negocio', {
       entityType: 'business', entityId: currentBusinessId,
@@ -2207,7 +2208,7 @@ $('form-cfg-alerts').addEventListener('submit', async (e) => {
 // -------------------------------------------------------------
 function initInvoices() {
   $('invoices-table-body').innerHTML = skeletonRows(5);
-  loadInvoicesList();
+  const loading = loadInvoicesList();
 
   document.querySelectorAll('#report-period button').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -2218,6 +2219,7 @@ function initInvoices() {
   });
   $('invoice-search').addEventListener('input', renderReports);
   $('btn-export-invoices').onclick = exportInvoicesCsv;
+  return loading;
 }
 
 // Calcula impuestos y genera la factura correspondiente a una venta.
@@ -2238,7 +2240,7 @@ async function createInvoiceForSale(sale, customerId) {
     }
   }
   const total = subtotal + taxAmount;
-  const invoiceNumber = 'FAC-' + Math.floor(100000 + Math.random() * 900000);
+  const invoiceNumber = (demoMode ? 'DEMO-' : 'FAC-') + Math.floor(100000 + Math.random() * 900000);
 
   return neon.from('invoices').insert([{
     business_id: currentBusinessId,
@@ -2293,7 +2295,7 @@ function renderReports() {
   tbody.innerHTML = list.map(inv => `
     <tr>
       <td class="cell-main"><b>${escapeHtml(inv.invoice_number)}</b></td>
-      <td data-label="Fecha">${new Date(inv.created_at).toLocaleDateString()}</td>
+      <td data-label="Fecha">${fmtDate(inv.created_at)}</td>
       <td data-label="Cliente">${escapeHtml(customerNameOf(inv.customer_id)) || '<span class="muted">Cliente general</span>'}</td>
       <td class="num" data-label="Total"><b>${money(inv.total)}</b></td>
       <td class="cell-actions"><button type="button" class="btn btn-sm btn-view-invoice" data-id="${inv.id}">Ver</button></td>
@@ -2370,7 +2372,7 @@ function exportInvoicesCsv() {
     return `"${s.replace(/"/g, '""')}"`;
   };
   const rows = [['N° factura', 'Fecha', 'Cliente', 'Subtotal', 'Impuesto', 'Total']].concat(list.map(inv => [
-    inv.invoice_number, new Date(inv.created_at).toLocaleDateString(), customerNameOf(inv.customer_id) || 'Cliente general',
+    inv.invoice_number, fmtDate(inv.created_at), customerNameOf(inv.customer_id) || 'Cliente general',
     parseFloat(inv.subtotal).toFixed(2), parseFloat(inv.tax_amount).toFixed(2), parseFloat(inv.total).toFixed(2)
   ]));
   const csv = '﻿' + rows.map(r => r.map(cell).join(',')).join('\r\n');
@@ -2430,7 +2432,7 @@ function recalcInvoiceTotals() {
 function openInvoiceModal(invoice) {
   const b = currentBusinessData || {};
 
-  $('inv-biz-name').textContent = b.name || 'Mi Negocio';
+  $('inv-biz-name').textContent = businessName();
   $('inv-biz-legal').textContent = b.legal_name || '';
   $('inv-biz-address').textContent = b.address || '';
   $('inv-biz-phone').textContent = b.phone ? `Tel: ${b.phone}` : '';
@@ -2440,7 +2442,7 @@ function openInvoiceModal(invoice) {
   else { logoImg.classList.add('hidden'); }
 
   $('inv-number').textContent = invoice.invoice_number;
-  $('inv-date').textContent = new Date(invoice.created_at).toLocaleDateString();
+  $('inv-date').textContent = fmtDate(invoice.created_at);
 
   const customer = customersSnapshot.find(c => c.id === invoice.customer_id);
   $('inv-customer-name').textContent = customer?.name || 'Cliente General';
@@ -2454,7 +2456,7 @@ function openInvoiceModal(invoice) {
   }
   recalcInvoiceTotals();
 
-  $('inv-notes').textContent = 'Gracias por su compra.';
+  $('inv-notes').textContent = demoMode ? 'FACTURA DE DEMOSTRACIÓN: datos ficticios, sin valor comercial.' : 'Gracias por su compra.';
 
   openModal('modal-invoice');
 }
@@ -2554,7 +2556,7 @@ async function initInventory() {
     };
     tbody.innerHTML = (data || []).map(m => `
       <tr>
-        <td class="cell-main">${new Date(m.created_at).toLocaleString()}</td>
+        <td class="cell-main">${fmtDateTime(m.created_at)}</td>
         <td data-label="Producto">${escapeHtml(m.product_name)}</td>
         <td data-label="Tipo">${typeBadge[m.type] || escapeHtml(m.type)}</td>
         <td class="num" data-label="Cant.">${m.quantity > 0 ? '+' : ''}${m.quantity}</td>
@@ -2680,7 +2682,7 @@ function renderInventory() {
   });
 }
 
-async function initReports() {
+async function loadSales() {
   const { data } = await neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
   if (data) {
     salesHistory = data;
@@ -2688,6 +2690,365 @@ async function initReports() {
     renderSalesTrend();
   }
 }
+const initReports = loadSales;
+
+
+// -------------------------------------------------------------
+// 10. ARRANQUE, DEMOSTRACIÓN, TUTORIAL Y CONFIGURACIÓN INICIAL
+// -------------------------------------------------------------
+// ---------- Pantalla de carga de arranque (refleja procesos reales) ----------
+const boot = {
+  hide() { $('boot-loader')?.classList.add('is-done'); },
+  show(msg, sub = '') {
+    const el = $('boot-loader');
+    el.classList.remove('is-done', 'has-error');
+    $('boot-msg').textContent = msg;
+    $('boot-sub').textContent = sub;
+    $('boot-bar').classList.add('indeterminate');
+  },
+  progress(done, total, label) {
+    const bar = $('boot-bar');
+    bar.classList.remove('indeterminate');
+    bar.style.setProperty('--p', Math.max(0.06, done / total).toFixed(3));
+    if (label) $('boot-sub').textContent = `Listo: ${label}`;
+  },
+  error(text, retry) {
+    const el = $('boot-loader');
+    el.classList.remove('is-done');
+    el.classList.add('has-error');
+    $('boot-err-text').textContent = text;
+    $('boot-retry').onclick = retry;
+    $('boot-exit').onclick = () => window.location.replace('index.html?landing');
+  }
+};
+
+function enterApp() {
+  setupRoleInterface();
+  startSystemModules();
+  boot.hide();
+  handleGotoParam();
+}
+
+// ?goto=settings: al terminar el tutorial desde «Ayuda» se llega a la configuración real.
+function handleGotoParam() {
+  if (demoMode || pageParams.get('goto') !== 'settings') return;
+  showModuleSection('sec-settings');
+  openSettingsSubpage('tab-cfg-business');
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+// ---------- Primera vez: bienvenida → tutorial → configuración ----------
+// Solo para quien es nuevo (negocio sin configurar). El estado se recuerda por usuario.
+function enterFirstRun(userId) {
+  const device = tourState.read('device');
+  if (!tourState.read(userId) && device?.status === 'completed') tourState.save(userId, { status: 'completed' });
+  const st = tourState.read(userId);
+  boot.hide();
+  if (!st || st.status === 'in_progress') {
+    const resume = st?.status === 'in_progress' && (st.step || 0) > 0;
+    const go = (step) => {
+      tourState.save(userId, { status: 'in_progress', step, total: st?.total });
+      boot.show('Preparando tu espacio de demostración…', 'Cargando los datos de ejemplo');
+      window.location.href = `app.html?demo=1&tour=1&first=1&step=${step}`;
+    };
+    showWelcome({
+      resume, step: st?.step || 0, total: st?.total || 14,
+      onStart: () => go(resume ? st.step : 0),
+      onRestart: () => go(0),
+      onExplore: () => { tourState.save(userId, { status: 'skipped' }); showWizard(); }
+    });
+  } else {
+    showWizard();
+  }
+}
+
+// ---------- Demostración ----------
+let tourCtl = null;
+let tourOwner = 'device';       // usuario autenticado, o el dispositivo si es un visitante
+let demoOrigin = 'guest';       // 'first' (nuevo usuario), 'help' (desde Ayuda) o 'guest' (visitante)
+const isMobileView = () => window.matchMedia('(max-width: 760px)').matches;
+
+function makeTour() {
+  if (tourCtl) return tourCtl;
+  tourCtl = createTour({
+    showSection: showModuleSection,
+    sectionAllowed: (id) => !!NAV_ITEMS.find(n => n.id === id)?.allowed(),
+    isMobile: isMobileView,
+    closeModals: closeAllModals,
+    closeModal,
+    openCart: openCartSheet,
+    closeCart: closeCartSheet,
+    onStep: (i, step, total) => tourState.save(tourOwner, { status: 'in_progress', step: i, total }),
+    onFinish: (groups) => showTourComplete(groups),
+    onSkip: () => onTourSkipped()
+  });
+  return tourCtl;
+}
+
+async function startTour(from = 0) {
+  try { await makeTour().start(from); }
+  catch (e) { console.error(e); toast.err('No se pudo iniciar el recorrido: ' + e.message); }
+}
+
+function showTourComplete(groups) {
+  tourState.save(tourOwner, { status: 'completed' });
+  showComplete({ groups, onReplay: () => startTour(0), onConfigure: finishDemoToSetup });
+}
+
+// «Configurar mi negocio»: 1) termina el modo demo, 2) guarda el progreso, 3) descarta los datos
+// ficticios recargando la página (la demo solo existía en memoria), 4-5) lleva a la pantalla real.
+async function finishDemoToSetup() {
+  tourState.save(tourOwner, { status: 'completed' });
+  if (demoOrigin === 'guest') tourState.save('device', { status: 'completed' }); // al crear su cuenta no se repite
+  window.location.replace(demoOrigin === 'help' ? 'app.html?goto=settings' : 'app.html');
+}
+
+function onTourSkipped() {
+  tourState.save(tourOwner, { status: 'skipped' });
+  if (demoOrigin === 'guest') { toast.info('Puedes seguir explorando la demostración cuando quieras.'); return; }
+  window.location.replace('app.html');
+}
+
+async function resetDemo() {
+  await withBusy($('demo-reset'), 'Reiniciando…', async () => {
+    demoBackend.reset();
+    cart = [];
+    closeAllModals();
+    closeCartSheet();
+    Object.keys(loaded).forEach(k => { loaded[k] = false; });
+    renderInventory(); renderCustomersTable(); renderPosCatalog();
+    await Promise.all([loadProducts(), loadCustomers(), loadSales(), loadInvoicesList(), loadEmployeesList(), loadInvites()]);
+    renderCart(); renderPosCatalog();
+    toast.ok('Demostración reiniciada con los datos de ejemplo.');
+  });
+}
+
+async function startDemoSession() {
+  boot.show('Preparando tu espacio de demostración…', 'Organizando los datos de ejemplo…');
+  try {
+    // ¿quién es? (solo la sesión de acceso: ninguna tabla real se consulta en la demo)
+    let realUserId = null;
+    try { const { data } = await realNeon.auth.getSession(); realUserId = data?.session?.user?.id || null; } catch (e) { /* visitante */ }
+    demoOrigin = pageParams.get('first') === '1' ? 'first' : (realUserId ? 'help' : 'guest');
+    tourOwner = realUserId || 'device';
+
+    document.body.classList.add('is-demo');
+    $('auth-screen').classList.add('hidden');
+    currentBusinessId = DEMO_BUSINESS_ID;
+    currentUserRole = 'admin';
+    currentUserPermissions = {};
+    const { data: biz, error } = await neon.from('businesses').select('*').eq('id', DEMO_BUSINESS_ID).maybeSingle();
+    if (error || !biz) throw new Error(error?.message || 'No se pudieron preparar los datos de ejemplo.');
+    setBusiness(biz);
+    setupRoleInterface();
+    await startSystemModules((done, total, label) => boot.progress(done, total, label));
+    document.title = 'Demostración · AINova Management';
+    boot.hide();
+
+    $('demo-tour').onclick = () => startTour(0);
+    $('demo-reset').onclick = resetDemo;
+    $('demo-exit').onclick = () => window.location.replace(demoOrigin === 'guest' ? 'index.html?landing' : 'app.html');
+
+    if (pageParams.get('tour') === '1') {
+      startTour(parseInt(pageParams.get('step')) || 0);
+    } else {
+      const st = tourState.read(tourOwner);
+      const resume = st?.status === 'in_progress' && (st.step || 0) > 0;
+      showWelcome({ resume, step: st?.step || 0, total: st?.total || 14,
+        onStart: () => startTour(resume ? st.step : 0), onRestart: () => startTour(0), onExplore: () => {} });
+    }
+  } catch (e) {
+    console.error('Demo:', e);
+    boot.error('No se pudo preparar la demostración: ' + (e.message || e), () => window.location.reload());
+  }
+}
+
+// «Ayuda y tutorial»: abre la demostración con el recorrido (en una carga de página aparte)
+document.querySelectorAll('.js-start-tour').forEach(btn => {
+  btn.onclick = () => { window.location.href = 'app.html?demo=1&tour=1'; };
+});
+
+// ---------- Asistente de configuración inicial ----------
+const WIZ_TOTAL = 4;
+let wizStep = 1;
+let wizLogo = null;
+
+const blankBusiness = () => ({ name: '', currency_symbol: '$', settings: {} });
+
+function showWizard() {
+  const root = $('wizard');
+  $('onboarding-screen').classList.remove('hidden');
+  root.classList.remove('is-saving', 'is-done');
+  const v = blankBusiness();
+  $('w-general').innerHTML = generalFields('w-', v, { withName: true });
+  $('w-brand').innerHTML = brandFields('w-', v);
+  $('w-regional').innerHTML = regionalFields('w-', v);
+  renderWizModules();
+  wireBrandFields(root, 'w-', () => applyBrand(readPrefs(root, 'w-').brand));
+  wireCountry(root, 'w-');
+  root.querySelectorAll('input, select, textarea').forEach(el => el.addEventListener('input', () => {
+    const field = el.closest('.field'); field?.classList.remove('has-error'); const err = field?.querySelector('.field-error'); if (err) err.textContent = '';
+  }));
+  wizGo(1);
+}
+
+// Los módulos que se ofrecen dependen del tipo de negocio (Equipo solo en grupos); se conserva lo ya marcado.
+function renderWizModules() {
+  const box = $('w-modules');
+  if (!box) return;
+  const off = new Set([...box.querySelectorAll('[data-module]')].filter(c => !c.checked).map(c => c.dataset.module));
+  const modules = MODULES.map(m => m[0]).filter(k => !off.has(k));
+  box.innerHTML = moduleFields('w-', { settings: { modules } }, { group: selectedBusinessType === 'group' });
+}
+
+function wizGo(n) {
+  wizStep = Math.max(1, Math.min(WIZ_TOTAL, n));
+  document.querySelectorAll('#wizard .wiz-step').forEach(el => el.classList.toggle('is-current', Number(el.dataset.step) === wizStep));
+  document.querySelectorAll('#wiz-steps li').forEach((li, i) => { li.classList.toggle('is-current', i + 1 === wizStep); li.classList.toggle('is-done', i + 1 < wizStep); });
+  $('wiz-bar-fill').style.setProperty('--p', (wizStep / WIZ_TOTAL).toFixed(3));
+  $('wiz-mobile-step').textContent = `Paso ${wizStep} de ${WIZ_TOTAL}`;
+  $('wiz-back').style.visibility = wizStep === 1 ? 'hidden' : 'visible';
+  $('wiz-next').textContent = wizStep === WIZ_TOTAL ? 'Guardar y terminar' : 'Siguiente';
+  window.scrollTo({ top: 0 });
+  requestAnimationFrame(() => document.querySelector(`#wizard .wiz-step[data-step="${wizStep}"] input:not([type=file]):not([type=hidden]):not([type=color]), #wizard .wiz-step[data-step="${wizStep}"] select`)?.focus({ preventScroll: true }));
+}
+
+function setFieldError(id, msg) {
+  const e = document.querySelector(`[data-err="${id}"]`);
+  if (e) e.textContent = msg;
+  e?.closest('.field')?.classList.toggle('has-error', !!msg);
+}
+
+function wizValidate(step) {
+  let ok = true;
+  if (step === 1) {
+    const name = ($('w-name').value || '').trim();
+    setFieldError('w-name', name.length < 2 ? 'Escribe el nombre de tu negocio (mínimo 2 letras).' : '');
+    if (name.length < 2) { ok = false; $('w-name').focus(); }
+    if (selectedBusinessType === 'group') {
+      const bad = !(parseInt($('onb-team-size').value) >= 1);
+      setFieldError('onb-team-size', bad ? 'Indica cuántas personas forman el equipo (1 o más).' : '');
+      if (bad) { if (ok) $('onb-team-size').focus(); ok = false; }
+    } else setFieldError('onb-team-size', '');
+  }
+  return ok;
+}
+
+$('wiz-back').onclick = () => wizGo(wizStep - 1);
+$('wiz-next').onclick = () => { if (!wizValidate(wizStep)) return; if (wizStep < WIZ_TOTAL) wizGo(wizStep + 1); else wizSave(0); };
+$('onboarding-form').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !['TEXTAREA', 'BUTTON'].includes(e.target.tagName)) { e.preventDefault(); $('wiz-next').click(); }
+});
+$('onboarding-form').addEventListener('submit', (e) => e.preventDefault());
+$('w-logo-file').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  if (!file.type.startsWith('image/')) { e.target.value = ''; return toast.err('Selecciona un archivo de imagen.'); }
+  try { wizLogo = await fileToLogoDataUrl(file); $('w-logo-preview').src = wizLogo; }
+  catch (err) { toast.err('No se pudo leer el logo: ' + err.message); }
+});
+
+function wizPayload() {
+  const prefs = readPrefs($('wizard'), 'w-');
+  const group = selectedBusinessType === 'group';
+  const settings = {
+    ...(currentBusinessData?.settings || {}),
+    trade_name: prefs.trade_name, activity: prefs.activity, description: prefs.description, brand: prefs.brand,
+    country: prefs.country, date_format: prefs.date_format, timezone: prefs.timezone,
+    modules: (prefs.modules || []).filter(k => group || k !== 'employees')
+  };
+  const payload = {
+    id: currentBusinessId, name: ($('w-name').value || '').trim(), business_type: selectedBusinessType,
+    team_size: group ? (parseInt($('onb-team-size').value) || null) : null,
+    currency_symbol: $('w-currency').value || '$', onboarding_completed: true, settings, updated_at: new Date()
+  };
+  if (wizLogo) payload.logo_url = wizLogo;
+  return payload;
+}
+
+// Guardado con progreso real: cada línea se marca cuando su operación termina de verdad.
+async function wizSave(fromIndex = 0) {
+  const root = $('wizard');
+  const payload = wizPayload();
+  const group = payload.business_type === 'group';
+  const steps = [
+    { label: 'Guardando los datos de tu negocio', run: async () => { const { error } = await neon.from('businesses').upsert(payload); if (error) throw error; } },
+    ...(group ? [{ label: 'Registrando tu usuario administrador', run: async () => {
+      const { error } = await neon.from('business_members').upsert([{ business_id: currentBusinessId, user_id: currentBusinessId, role: 'admin' }]);
+      if (error) throw error; } }] : []),
+    { label: 'Aplicando tu configuración', run: async () => { setBusiness({ ...(currentBusinessData || {}), ...payload }); await logActivity('Completó la configuración inicial del negocio'); } }
+  ];
+  root.classList.add('is-saving');
+  root.classList.remove('is-done');
+  $('wiz-saving').classList.remove('has-error');
+  const list = $('save-list');
+  list.innerHTML = steps.map((st, i) => `<li data-i="${i}" class="${i < fromIndex ? 'is-ok' : ''}"><span class="st">${i < fromIndex ? ico('check', 'i-sm') : ''}</span>${escapeHtml(st.label)}</li>`).join('');
+  window.scrollTo({ top: 0 });
+  for (let i = fromIndex; i < steps.length; i++) {
+    const li = list.querySelector(`[data-i="${i}"]`);
+    li.className = 'is-run';
+    try {
+      await steps[i].run();
+      li.className = 'is-ok';
+      li.querySelector('.st').innerHTML = ico('check', 'i-sm');
+    } catch (err) {
+      console.error('Configuración inicial:', err);
+      li.className = 'is-err';
+      $('save-err-text').textContent = 'No se pudo guardar: ' + (err.message || err) + '.';
+      $('wiz-saving').classList.add('has-error');
+      $('save-retry').onclick = () => wizSave(i);
+      return;
+    }
+  }
+  root.classList.remove('is-saving');
+  root.classList.add('is-done');
+}
+
+$('wiz-finish').onclick = () => {
+  $('onboarding-screen').classList.add('hidden');
+  if (currentBusinessData?.business_type === 'group') openModal('modal-forced-password');
+  else enterApp();
+};
+
+// ---------- Preferencias del negocio (Configuración) ----------
+function populateCurrencyOptions(current) {
+  const sel = $('cfg-currency-symbol');
+  const list = CURRENCIES.some(([c]) => c === current) ? CURRENCIES : [[current, current], ...CURRENCIES];
+  sel.innerHTML = list.map(([c, l]) => `<option value="${escapeHtml(c)}">${escapeHtml(l)}</option>`).join('');
+}
+
+function renderPrefsForm() {
+  const b = currentBusinessData || {};
+  const root = $('form-cfg-prefs');
+  $('s-general').innerHTML = generalFields('s-', b);
+  $('s-brand').innerHTML = brandFields('s-', b);
+  $('s-regional').innerHTML = regionalFields('s-', b);
+  $('s-modules').innerHTML = moduleFields('s-', b, { group: b.business_type === 'group' });
+  wireBrandFields(root, 's-', () => applyBrand(readPrefs(root, 's-').brand));
+  wireCountry(root, 's-');
+}
+
+$('form-cfg-prefs').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const root = e.currentTarget;
+  await withBusy(root.querySelector('button[type=submit]'), 'Guardando…', async () => {
+    const group = currentBusinessData?.business_type === 'group';
+    const prefs = readPrefs(root, 's-');
+    const settings = { ...(currentBusinessData?.settings || {}), ...prefs };
+    settings.modules = (prefs.modules || []).filter(k => group || k !== 'employees');
+    const { error } = await neon.from('businesses').update({ settings, updated_at: new Date() }).eq('id', currentBusinessId);
+    if (error) return toast.err('No se pudieron guardar las preferencias: ' + error.message);
+    setBusiness({ ...currentBusinessData, settings });
+    $('business-display-name').textContent = businessName();
+    $('user-avatar').textContent = initials(businessName());
+    renderNav();
+    if (currentSectionId && !NAV_ITEMS.find(n => n.id === currentSectionId)?.allowed()) showModuleSection(isAdmin() ? 'sec-dashboard' : 'sec-sales');
+    else document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.target === currentSectionId));
+    refreshCurrencyViews();
+    await logActivity('Actualizó las preferencias del negocio');
+    toast.ok('Preferencias guardadas.');
+  });
+});
 
 // Salir: el botón del menú lateral, el de Mi cuenta y el de la hoja "Más".
 // No se depende del aviso del cliente de autenticación (el real no siempre lo emite en la
@@ -2717,3 +3078,6 @@ async function logout() {
   window.location.replace('index.html');
 }
 document.querySelectorAll('.js-logout').forEach(btn => { btn.onclick = logout; });
+
+// Arranque en modo demostración (la demo se prepara en esta misma carga de página)
+if (demoMode) startDemoSession();
