@@ -29,6 +29,47 @@ export function fmtNum(n) {
 }
 export function money(n) { return currency + fmtNum(n); }
 
+// ---------- Región: formato de fecha y zona horaria ----------
+// 'auto' usa el formato del dispositivo; 'DMY' = 31/12/2026, 'MDY' = 12/31/2026, 'YMD' = 2026-12-31.
+let regional = { dateFormat: 'auto', timeZone: null };
+export function setRegional(r) {
+  const tz = r?.timeZone || null;
+  let valid = null;
+  if (tz) { try { new Intl.DateTimeFormat('en', { timeZone: tz }); valid = tz; } catch (e) { valid = null; } }
+  regional = { dateFormat: ['DMY', 'MDY', 'YMD'].includes(r?.dateFormat) ? r.dateFormat : 'auto', timeZone: valid };
+}
+function joinDate(y, m, d) {
+  if (regional.dateFormat === 'MDY') return `${m}/${d}/${y}`;
+  if (regional.dateFormat === 'YMD') return `${y}-${m}-${d}`;
+  return `${d}/${m}/${y}`;
+}
+function dateParts(date) {
+  const parts = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: regional.timeZone || undefined }).formatToParts(date);
+  const get = (t) => parts.find((x) => x.type === t).value;
+  return [get('year'), get('month'), get('day')];
+}
+export function fmtDate(value) {
+  const d = new Date(value);
+  if (isNaN(d)) return '—';
+  if (regional.dateFormat === 'auto' && !regional.timeZone) return d.toLocaleDateString();
+  const [y, m, day] = dateParts(d);
+  return regional.dateFormat === 'auto' ? new Intl.DateTimeFormat(undefined, { timeZone: regional.timeZone }).format(d) : joinDate(y, m, day);
+}
+export function fmtDateTime(value) {
+  const d = new Date(value);
+  if (isNaN(d)) return '—';
+  if (regional.dateFormat === 'auto' && !regional.timeZone) return d.toLocaleString();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', timeZone: regional.timeZone || undefined });
+  return `${fmtDate(d)} ${time}`;
+}
+/** Fecha "YYYY-MM-DD" sin hora (no se mueve de día por zona horaria). */
+export function fmtYmd(str) {
+  if (!str) return '—';
+  const [y, m, d] = String(str).split('-');
+  if (regional.dateFormat === 'auto') return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString();
+  return joinDate(y, m, d);
+}
+
 export function initials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';
@@ -128,7 +169,7 @@ export function confirmDialog({ title = '¿Seguro?', message = '', confirmLabel 
   return new Promise((resolve) => {
     const root = document.createElement('div');
     root.className = 'modal-root';
-    root.style.zIndex = '450';
+    root.style.zIndex = '720'; // por encima del tutorial (640) y de la bienvenida (700)
     root.innerHTML = `
       <div class="modal-scrim"></div>
       <div class="modal-card narrow" role="alertdialog" aria-modal="true" aria-labelledby="cf-title">

@@ -50,8 +50,36 @@
   <!-- Sistema de diseño compartido con la presentación + estilos propios de la app -->
   <link rel="stylesheet" href="assets/css/ds.css">
   <link rel="stylesheet" href="assets/css/app.css">
+  <link rel="stylesheet" href="assets/css/onboarding.css">
 </head>
 <body class="app-body">
+
+  <!-- Carga de arranque: se oculta cuando la app sabe qué pantalla corresponde (proceso real). -->
+  <div id="boot-loader" role="status" aria-live="polite">
+    <div class="boot-card">
+      <img class="boot-logo" src="assets/logo-horizontal.png" alt="AINova Management" width="148" height="61">
+      <div class="boot-bar indeterminate" id="boot-bar"><i></i></div>
+      <p class="boot-msg" id="boot-msg">Cargando AINova Management…</p>
+      <p class="boot-sub" id="boot-sub"></p>
+      <div class="boot-error">
+        <p id="boot-err-text">No se pudo cargar.</p>
+        <button type="button" class="btn btn-primary" id="boot-retry">Reintentar</button>
+        <button type="button" class="link-btn" id="boot-exit">Salir</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    // Si la aplicación no llega a arrancar (sin conexión, bloqueo...), no se deja una pantalla de carga eterna.
+    setTimeout(function () {
+      var l = document.getElementById('boot-loader');
+      if (l && !l.classList.contains('is-done')) {
+        l.classList.add('has-error');
+        document.getElementById('boot-err-text').textContent = 'Está tardando más de lo normal. Revisa tu conexión e inténtalo de nuevo.';
+        document.getElementById('boot-retry').onclick = function () { location.reload(); };
+        document.getElementById('boot-exit').onclick = function () { location.replace('index.html?landing'); };
+      }
+    }, 20000);
+  </script>
 
   <div id="toast-region" role="status" aria-live="polite"></div>
 
@@ -131,42 +159,91 @@
     </div>
   </section>
 
-  <!-- ===================== CONFIGURACIÓN INICIAL ===================== -->
+  <!-- ===================== CONFIGURACIÓN INICIAL (asistente por pasos) ===================== -->
   <section id="onboarding-screen" class="onboarding hidden">
-    <div class="auth-shell">
-      <div class="auth-card card">
-        <h1>Configura tu negocio</h1>
-        <p class="auth-sub">Dos datos y listo. Podrás cambiarlos después en Configuración.</p>
+    <div class="wizard" id="wizard">
+      <aside class="wiz-side">
+        <div class="wiz-brand"><img src="assets/logo-horizontal.png" alt="AINova Management" width="136" height="56"></div>
+        <span class="wiz-mobile-step" id="wiz-mobile-step">Paso 1 de 4</span>
+        <ol class="wiz-steps" id="wiz-steps"><li>Tu negocio</li><li>Identidad visual</li><li>Región</li><li>Módulos</li></ol>
+      </aside>
 
-        <form id="onboarding-form">
-          <div class="field">
-            <label for="onb-business-name">Nombre de la empresa</label>
-            <input type="text" id="onb-business-name" placeholder="Ej: Mi Colmado / Licorería" maxlength="100" required>
-          </div>
+      <div class="card wiz-main">
+        <div class="wiz-bar" aria-hidden="true"><i id="wiz-bar-fill"></i></div>
+        <h1>Configuremos tu negocio.</h1>
+        <p class="wiz-lead">Personaliza AINova Management para que se adapte a tu forma de trabajar.</p>
 
-          <div class="field">
-            <span class="label">Tipo de negocio</span>
-            <div class="radio-group">
-              <button type="button" class="radio-card selected" data-type="individual">
-                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-user"/></svg><b>Individual</b><small>Trabajas solo o con ayuda ocasional.</small>
-              </button>
-              <button type="button" class="radio-card" data-type="group">
-                <svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-team"/></svg><b>Grupo / Equipo</b><small>Con empleados que entran con su propia cuenta.</small>
-              </button>
+        <form id="onboarding-form" novalidate>
+          <div class="wiz-step is-current" data-step="1">
+            <h2>Información general</h2>
+            <p class="hint">Solo el nombre es obligatorio.</p>
+            <div id="w-general"></div>
+            <div class="field">
+              <span class="label">Tipo de negocio</span>
+              <div class="radio-group">
+                <button type="button" class="radio-card selected" data-type="individual"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-user"/></svg><b>Individual</b><small>Trabajas solo o con ayuda ocasional.</small></button>
+                <button type="button" class="radio-card" data-type="group"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-team"/></svg><b>Grupo / Equipo</b><small>Con empleados que entran con su propia cuenta.</small></button>
+              </div>
             </div>
-          </div>
-
-          <div id="team-size-container" class="smooth-collapse">
-            <div class="collapse-inner">
-              <div class="field">
-                <label for="onb-team-size">¿Cuántas personas conforman el equipo?</label>
-                <input type="number" id="onb-team-size" min="1" placeholder="Ej: 3">
+            <div id="team-size-container" class="smooth-collapse">
+              <div class="collapse-inner">
+                <div class="field"><label for="onb-team-size">¿Cuántas personas conforman el equipo?</label><input type="number" id="onb-team-size" min="1" placeholder="Ej: 3"><p class="field-error" data-err="onb-team-size"></p></div>
               </div>
             </div>
           </div>
 
-          <button type="submit" class="btn btn-primary btn-lg btn-block">Continuar al Dashboard</button>
+          <div class="wiz-step" data-step="2">
+            <h2>Identidad visual</h2>
+            <p class="hint">Todo es opcional y se puede cambiar después.</p>
+            <div class="field">
+              <span class="label">Logotipo</span>
+              <div class="bg-row">
+                <img id="w-logo-preview" src="logo.png" class="bg-preview" alt="">
+                <input type="file" id="w-logo-file" accept="image/*">
+              </div>
+            </div>
+            <div id="w-brand"></div>
+            <div class="field">
+              <span class="label">Tema visual</span>
+              <div class="wiz-theme" role="group" aria-label="Tema">
+                <button type="button" class="theme-card" data-theme-set="light"><span class="tc-preview tc-light"><i></i><i></i><i></i></span><b><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-sun"/></svg> Claro</b></button>
+                <button type="button" class="theme-card" data-theme-set="dark"><span class="tc-preview tc-dark"><i></i><i></i><i></i></span><b><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-moon"/></svg> Oscuro</b></button>
+                <button type="button" class="theme-card" data-theme-set="auto"><span class="tc-preview tc-auto"><i></i><i></i><i></i></span><b><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-monitor"/></svg> Automático</b></button>
+              </div>
+            </div>
+          </div>
+
+          <div class="wiz-step" data-step="3">
+            <h2>Configuración regional</h2>
+            <p class="hint">Al elegir tu país sugerimos la moneda, la zona horaria y el formato de fecha.</p>
+            <div id="w-regional"></div>
+          </div>
+
+          <div class="wiz-step" data-step="4">
+            <h2>¿Qué módulos vas a usar?</h2>
+            <div id="w-modules"></div>
+          </div>
+
+          <div class="wiz-nav">
+            <button type="button" class="btn" id="wiz-back">Atrás</button>
+            <span class="grow"></span>
+            <button type="button" class="btn btn-primary" id="wiz-next">Siguiente</button>
+          </div>
         </form>
+
+        <div class="wiz-saving" id="wiz-saving" role="status" aria-live="polite">
+          <h1>Preparando tu espacio de trabajo…</h1>
+          <p class="wiz-lead">Estamos guardando tu configuración.</p>
+          <ul class="save-list" id="save-list"></ul>
+          <div class="save-err"><p class="field-error" id="save-err-text"></p><button type="button" class="btn btn-primary" id="save-retry">Reintentar</button></div>
+        </div>
+
+        <div class="wiz-done" id="wiz-done">
+          <div class="tc-check" aria-hidden="true"><svg viewBox="0 0 52 52"><circle cx="26" cy="26" r="24"/><path d="M15 27l8 8 15-17"/></svg></div>
+          <h1>Tu espacio de trabajo está preparado</h1>
+          <p class="wiz-lead">Ya puedes empezar a usar AINova Management con tus propios datos.</p>
+          <button type="button" class="btn btn-primary btn-lg" id="wiz-finish">Ir a mi panel</button>
+        </div>
       </div>
     </div>
   </section>
@@ -179,13 +256,16 @@
         <img id="header-logo-img" src="logo.png" alt="" class="sb-logo">
         <div class="sb-brand-text">
           <strong id="business-display-name">Mi Negocio</strong>
-          <span id="user-role-badge" class="badge badge-ok no-dot">Admin</span>
+          <span id="user-role-badge" class="badge badge-ok no-dot">Admin</span><span class="demo-chip">DEMO</span>
         </div>
       </div>
 
       <nav id="sidebar-nav" class="sb-nav"></nav>
 
       <div class="sb-foot">
+        <button type="button" id="btn-help-tour" class="sb-item js-start-tour" title="Ayuda y tutorial">
+          <svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-info"/></svg><span class="sb-label">Ayuda y tutorial</span>
+        </button>
         <button type="button" id="btn-sidebar-collapse" class="sb-item" aria-label="Contraer menú" title="Contraer menú">
           <svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-panel"/></svg><span class="sb-label">Contraer menú</span>
         </button>
@@ -196,11 +276,18 @@
     </aside>
 
     <div class="app-main">
+      <div class="demo-bar" id="demo-bar" role="note">
+        <b>DEMO</b>
+        <span>Estás en la demostración con datos ficticios de «Nova Market Demo». Nada se guarda en tu negocio.</span>
+        <button type="button" class="btn" id="demo-tour">Ver recorrido</button>
+        <button type="button" class="btn" id="demo-reset">Reiniciar demo</button>
+        <button type="button" class="btn" id="demo-exit">Salir de la demo</button>
+      </div>
       <header id="app-header" class="topbar">
         <div class="topbar-left">
           <img class="topbar-logo" src="logo.png" alt="">
           <div>
-            <h1 id="page-title">Dashboard</h1>
+            <div class="topbar-title"><h1 id="page-title">Dashboard</h1><span class="demo-chip">DEMO</span></div>
             <p id="page-date" class="topbar-date"></p>
           </div>
         </div>
@@ -535,6 +622,7 @@
               <button type="button" class="settings-list-item" data-subpage="settings-page-account"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-user"/></svg><span>Mi cuenta</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
               <button type="button" class="settings-list-item" data-subpage="settings-page-customization"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-sun"/></svg><span>Apariencia</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
               <div class="nav-admin-only settings-group">
+                <button type="button" class="settings-list-item" data-subpage="tab-cfg-prefs"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-sparkle"/></svg><span>Preferencias y módulos</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
                 <button type="button" class="settings-list-item" data-subpage="tab-cfg-business"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-building"/></svg><span>Datos del negocio</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
                 <button type="button" class="settings-list-item" data-subpage="tab-cfg-tax"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-percent"/></svg><span>Moneda e impuestos</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
                 <button type="button" class="settings-list-item" data-subpage="tab-cfg-payments"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-card"/></svg><span>Métodos de pago</span><svg class="i chev" aria-hidden="true"><use href="assets/icons.svg#i-chevron-right"/></svg></button>
@@ -550,6 +638,7 @@
               <div id="settings-page-account" class="settings-subpage card hidden">
                 <div class="card-head"><div><h3 class="card-title">Mi cuenta</h3><p class="card-sub" id="account-email">—</p></div></div>
                 <div class="row-switch"><div><b>Contraseña</b><small>Te enviamos un enlace al correo para crearla o cambiarla.</small></div><button type="button" id="btn-set-password" class="btn btn-sm"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-key"/></svg>Crear o cambiar</button></div>
+                <div class="row-switch"><div><b>Tutorial de bienvenida</b><small>Recorre el sistema con datos de ejemplo. No toca tu negocio.</small></div><button type="button" class="btn btn-sm js-start-tour"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-info"/></svg>Ver tutorial</button></div>
                 <div class="row-switch"><div><b>Cerrar sesión</b><small>Saldrás de este dispositivo.</small></div><button type="button" id="btn-logout-account" class="btn btn-sm btn-danger js-logout"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-logout"/></svg>Salir</button></div>
               </div>
 
@@ -571,6 +660,18 @@
                   <input type="file" id="cfg-bg-file" accept="image/*">
                   <button type="button" id="btn-remove-bg" class="btn btn-sm btn-danger">Quitar fondo</button>
                 </div>
+              </div>
+
+              <!-- Preferencias del negocio -->
+              <div id="tab-cfg-prefs" class="settings-subpage card hidden">
+                <div class="card-head"><div><h3 class="card-title">Preferencias y módulos</h3><p class="card-sub">Lo mismo que elegiste en la configuración inicial.</p></div></div>
+                <form id="form-cfg-prefs">
+                  <h4 class="mini-title">General</h4><div id="s-general"></div>
+                  <h4 class="mini-title">Colores de marca</h4><div id="s-brand"></div>
+                  <h4 class="mini-title">Región</h4><div id="s-regional"></div>
+                  <h4 class="mini-title">Módulos</h4><div id="s-modules"></div>
+                  <button type="submit" class="btn btn-primary" style="margin-top:16px">Guardar preferencias</button>
+                </form>
               </div>
 
               <!-- Datos del negocio -->
@@ -602,12 +703,7 @@
                 <form id="form-cfg-tax">
                   <div class="field" style="max-width:320px">
                     <label for="cfg-currency-symbol">Símbolo de moneda</label>
-                    <select id="cfg-currency-symbol">
-                      <option value="$">$ (USD)</option>
-                      <option value="RD$">RD$ (DOP)</option>
-                      <option value="€">€ (EUR)</option>
-                      <option value="MXN$">MXN$ (MXN)</option>
-                    </select>
+                    <select id="cfg-currency-symbol"></select>
                   </div>
                   <div class="row-switch"><div><b>¿Tu negocio aplica impuestos?</b><small>Se calculan en cada factura.</small></div><label class="switch"><input type="checkbox" id="cfg-tax-enabled"><span></span></label></div>
                   <div id="cfg-tax-details" class="smooth-collapse">
@@ -682,7 +778,8 @@
           <button type="button" data-theme-set="dark" style="flex:1"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-moon"/></svg>Oscuro</button>
           <button type="button" data-theme-set="auto" style="flex:1"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-monitor"/></svg>Auto</button>
         </div>
-        <button type="button" class="btn btn-block js-logout" style="margin-top:16px"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-logout"/></svg>Salir</button>
+        <button type="button" class="btn btn-block js-start-tour" style="margin-top:16px"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-info"/></svg>Ayuda y tutorial</button>
+        <button type="button" class="btn btn-block js-logout" style="margin-top:10px"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-logout"/></svg>Salir</button>
       </div>
     </div>
   </div>
