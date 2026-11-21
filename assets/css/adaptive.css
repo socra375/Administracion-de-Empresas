@@ -17,7 +17,7 @@
   .btn { min-height: 44px; }
   .btn-sm { min-height: 40px; }
   .btn-icon { min-width: 44px; }
-  .chip, .period-btn, .seg > button, .tab-item { min-height: 40px; }
+  .chip, .period-btn, .seg > button { min-height: 40px; }
   .seg > button { padding-inline: 14px; }
   .popover-item { min-height: 44px; }
 }
