@@ -1,16 +1,24 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="light" data-theme-pref="auto">
+<!-- type: software
+     deal: hero centred, nav nav-centre, close close-type (el cierre repartido, close-word, no encaja sobre el suelo
+           iluminado de footer-statement: su receta pide el cierre como close-type), footer footer-statement,
+           rhythm space, buttons solid, grounds none (suelo iluminado sage; sin shader), moments none,
+           type gabarito (Gabarito + Figtree + DM Mono), palette: la propia de AINova (start.mjs brand)
+     La página es una pila de pantallas: el héroe solo en la primera, cada sección exactamente una o dos. -->
+<html lang="es" data-type="software" data-radius="soft" data-ground="sage" data-buttons="solid" data-motion>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>AINova Management</title>
-<meta name="description" content="Controla ventas, inventario y cuentas por cobrar desde un solo lugar.">
+<title>AINova Management: ventas e inventario para tu negocio</title>
+<meta name="description" content="Cobra en el punto de venta, descuenta el stock al instante y lleva las cuentas de cada cliente. Seis módulos conectados, en el celular o la computadora.">
+<meta name="site-kind" content="software">
+<meta name="page-type" content="software">
 <meta property="og:title" content="AINova Management">
 <meta property="og:description" content="Ventas, inventario y cuentas por cobrar en un solo lugar.">
 <meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#F7F5F0">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="light">
 <script>
 /* Esta página es la puerta de entrada del sitio, pero se aparta de quien ya está dentro.
    Va aquí arriba, antes de cualquier estilo o fuente, para que quien deba ir directo a la
@@ -48,123 +56,417 @@
   if (logged) window.location.replace(APP);
 })();
 </script>
-<!-- Tema (claro / oscuro / automático): el mismo motor que la app; síncrono para no parpadear. -->
-<script src="assets/js/theme.js"></script>
 <link rel="icon" type="image/png" sizes="256x256" href="logo.png">
 <link rel="icon" type="image/png" sizes="512x512" href="logo-512.png">
 <link rel="apple-touch-icon" href="logo-512.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/css/ds.css">
-<link rel="stylesheet" href="assets/css/landing.css">
+<link href="https://fonts.googleapis.com/css2?family=Gabarito:wght@400..700&family=Figtree:wght@400..600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/system.css">
+<link rel="stylesheet" href="assets/ui/cards.css">
+<link rel="stylesheet" href="assets/motion/motion.css">
+<link rel="stylesheet" href="assets/backgrounds/backgrounds.css">
+<link rel="stylesheet" href="assets/layout/layout.css">
+<link rel="stylesheet" href="assets/icons/icon.css">
+<link rel="stylesheet" href="assets/layout/demo.css">
+<!-- keep this <style> after the links: layout.css resets --ly-scale -->
+<style>
+:root {
+  --p-bg: #f7f5f0; --p-surface: #ffffff; --p-ink: #14201b; --p-muted: #5b6560;
+  --p-accent: #047857; --p-accent-ink: #f7f5f0; --p-action: #047857; --p-action-ink: #f7f5f0;
+  --p-inv-bg: #14201b; --p-inv-surface: #212c27; --p-inv-ink: #f7f5f0; --p-inv-muted: #989c97;
+  --p-inv-accent: #047857; --p-inv-accent-ink: #f7f5f0; --p-inv-action: #047857; --p-inv-action-ink: #f7f5f0;
+  --font-display: "Gabarito", system-ui, sans-serif;
+  --font-text: "Figtree", system-ui, sans-serif;
+  --font-mono: "DM Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --display-weight: 400;
+  --display-tracking: -0.03em;
+  --display-tracking-xl: -0.04em;
+  --ly-scale: 0.98;
+}
+</style>
+<link rel="stylesheet" href="assets/ui/base.css">
+<link rel="stylesheet" href="assets/ui/window/fragment.css">
+<link rel="stylesheet" href="assets/ui/doc/fragment.css">
+<link rel="stylesheet" href="assets/ui/stat/fragment.css">
+<link rel="stylesheet" href="assets/ui/notify/fragment.css">
+<link rel="stylesheet" href="assets/ui/search/fragment.css">
+<link rel="stylesheet" href="assets/ui/checklist/fragment.css">
+<link rel="stylesheet" href="assets/ui/toggles/fragment.css">
+<script src="assets/backgrounds/backgrounds.js"></script>
+<style>
+  /* app-frame: la ventana del producto, de línea a línea (receta app-frame) */
+  .app.ui { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); margin-top: var(--s-7); background: var(--u-bg); border: 1px solid var(--u-border); border-radius: var(--u-r); box-shadow: var(--u-shadow); }
+  .app > .app__pane { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+  .app > .app__pane + .app__pane { border-left: 1px solid var(--u-line); }
+  .app > .app__pane > .ui-panel { width: 100%; border: 0; border-radius: 0; box-shadow: none; }
+  .app > .app__pane::after { content: ""; position: absolute; inset: auto 0 0 0; height: 64px; background: linear-gradient(transparent, var(--u-bg)); pointer-events: none; }
+  @media (min-width: 1024px) and (max-width: 1279px) { .app.ui { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); } }
+  @media (max-width: 1023px) {
+    .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+    .app > .app__pane--list { max-height: 252px; }
+    .app > .app__pane--list::after { display: none; }
+    .app .ui-win__side { display: none; }
+    .app .ui-win__body { grid-template-columns: minmax(0, 1fr); }
+    .app > .app__pane + .app__pane { border-left: 0; border-top: 1px solid var(--u-line); }
+  }
+  @media (max-width: 639px) {
+    .app.ui { grid-template-rows: minmax(0, 1fr); }
+    .app > .app__pane--list { display: none; }
+    .app > .app__pane + .app__pane { border-top: 0; }
+  }
+  /* héroe: las piezas de la ventana del punto de venta (hero-centred) */
+  .d-win--dark .d-win__body { grid-template-columns: 250px 1fr; min-height: 420px; }
+  .d-win--dark .d-win__bar b { color: #eceef0; font-weight: 500; } .d-win--dark .d-win__bar .sp { flex: 1; }
+  /* the exchange stands in the window's top 260px: one-line question, the tool line, a two-line answer, its actions */
+  .hero__window .d-chat { padding: 14px 18px; gap: 8px; }
+  .hero__window .d-msg--me small { display: none; }
+  .hero__window .d-msg--bot { max-width: 86%; }
+  .hero__window .d-msg--bot small { display: inline; margin: 0 0 0 8px; white-space: nowrap; }
+  @media (max-width: 639px) { .hero__window .d-win__bar .sp ~ span { display: none; } }
+  .inbox { border-right: 1px solid rgb(255 255 255 / .07); padding: 10px; display: grid; align-content: start; gap: 2px; }
+  .inbox .q { height: 34px; margin-bottom: 6px; border-radius: 9px; background: rgb(255 255 255 / .06); display: flex; align-items: center; padding: 0 10px; color: #7d8389; font-size: 13px; }
+  .inbox .t { display: grid; grid-template-columns: 30px 1fr auto; gap: 1px 10px; padding: 9px 8px; border-radius: 9px; font-size: 13px; }
+  .inbox .t.is-on { background: rgb(255 255 255 / .07); }
+  .inbox .t i { grid-row: 1 / span 2; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 600 13px/1 var(--font-text); font-style: normal; color: #0c0d0f; }
+  .inbox .t b { font-weight: 500; color: #eceef0; } .inbox .t time { color: #7d8389; font-size: 13px; }
+  .inbox .t span { grid-column: 2 / -1; color: #8d9399; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .convo { display: grid; min-width: 0; align-content: start; }
+  .d-msg--bot { background: #22262b; color: #e9ecee; }
+  .acts { display: flex; gap: 8px; } .acts span { height: 30px; padding: 0 12px; border-radius: 99px; display: inline-flex; align-items: center; font-size: 13px; font-weight: 500; background: #f2f2f0; color: #0c0d0f; }
+  .acts span + span { background: rgb(255 255 255 / .08); color: #e9ecee; }
+  /* estado de cuenta: el documento llena su columna y la nota queda a su lado */
+  .app__pane--open .ui-doc { width: 100%; height: 100%; padding: 32px 32px 0; }
+  .app__pane--open .ui-doc__page { flex: 1; }
+  @media (min-width: 1024px) { .app__pane--open .ui-doc { padding-right: 248px; } .app__pane--open .ui-doc__note { right: 32px; top: 32px; } }
+  #funciones .panel { --p-h: 336px; }
+  @media (min-width: 1024px) and (max-width: 1279px) { #funciones .panel { --p-h: 316px; } }
+  @media (max-width: 639px) { #funciones .panel { --p-h: 264px; } }
+  .frame--split.frame--lit { aspect-ratio: 5 / 4; }
+  @media (max-width: 639px) { .frame--split.frame--lit { aspect-ratio: 1; } }
+  @media (min-width: 1024px) and (max-width: 1279px) { .frame--split.frame--lit { aspect-ratio: 4 / 5; } }
+  .nav__logo img { display: block; height: 36px; width: auto; }
+</style>
 </head>
-<body class="landing">
+<body>
 
-<div class="wrap">
-  <header class="lp-header">
-    <a class="lp-brand" href="index.html?landing" aria-label="AINova Management">
-      <img src="assets/logo-horizontal.png" alt="AINova Management" width="165" height="68">
-    </a>
-    <div class="lp-actions">
-      <div class="popover-wrap">
-        <button type="button" class="btn btn-ghost btn-icon" data-theme-toggle aria-haspopup="menu" aria-expanded="false" aria-label="Cambiar tema" title="Tema">
-          <svg class="i theme-ico t-light" aria-hidden="true"><use href="assets/icons.svg#i-sun"/></svg>
-          <svg class="i theme-ico t-dark" aria-hidden="true"><use href="assets/icons.svg#i-moon"/></svg>
-          <svg class="i theme-ico t-auto" aria-hidden="true"><use href="assets/icons.svg#i-monitor"/></svg>
-        </button>
-        <div class="popover hidden" role="menu">
-          <div class="popover-label">Tema</div>
-          <button type="button" class="popover-item" role="menuitemradio" data-theme-set="light"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-sun"/></svg> Claro <svg class="i check" aria-hidden="true"><use href="assets/icons.svg#i-check"/></svg></button>
-          <button type="button" class="popover-item" role="menuitemradio" data-theme-set="dark"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-moon"/></svg> Oscuro <svg class="i check" aria-hidden="true"><use href="assets/icons.svg#i-check"/></svg></button>
-          <button type="button" class="popover-item" role="menuitemradio" data-theme-set="auto"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-monitor"/></svg> Automático <svg class="i check" aria-hidden="true"><use href="assets/icons.svg#i-check"/></svg></button>
-        </div>
-      </div>
-      <a class="btn btn-primary" href="app.html">Entrar</a>
+<header class="nav nav--centre">
+  <div class="wrap nav__bar">
+    <a class="nav__logo" href="#top" aria-label="AINova Management, inicio"><img src="assets/logo-horizontal.png" alt="AINova Management" width="87" height="36"></a>
+    <nav class="nav__links" aria-label="Principal">
+      <div class="nav__item"><a class="nav__link" href="#cuentas">Cuentas</a></div>
+      <div class="nav__item"><a class="nav__link" href="#funciones">Funciones</a></div>
+      <div class="nav__item"><a class="nav__link" href="#equipo">Equipo</a></div>
+      <div class="nav__item"><a class="nav__link" href="#preguntas">Preguntas</a></div>
+    </nav>
+    <div class="nav__actions">
+      <a class="nav__link" href="app.html?demo=1">Ver la demostración</a>
+      <a class="btn btn--primary" href="app.html">Entrar a la app</a>
     </div>
-  </header>
+    <button class="nav__toggle" type="button" aria-expanded="false" aria-label="Menú">
+      <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><path d="M2 5h14M2 13h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+    </button>
+  </div>
+</header>
 
-  <main>
-    <!-- Primera pantalla: qué es, a dónde entrar y cómo se ve por dentro -->
-    <section class="lp-hero">
-      <div>
-        <h1>Todo tu negocio en <em>un solo lugar</em>.</h1>
-        <p class="lp-lead">Registra tus ventas, controla el inventario y lleva las cuentas de tus clientes. Desde el celular o la computadora.</p>
-        <div class="lp-cta">
-          <a class="btn btn-primary btn-lg" href="app.html">Entrar a la app</a>
-          <a class="btn btn-lg" href="app.html?demo=1">Ver la demostración</a>
-        </div>
-        <ul class="lp-points">
-          <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-check-circle"/></svg>Venta rápida con efectivo, tarjeta, transferencia o crédito</li>
-          <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-check-circle"/></svg>Facturas listas para descargar en imagen o PDF</li>
-          <li><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-check-circle"/></svg>Empleados con su propia cuenta y permisos</li>
-        </ul>
+<main id="top">
+  <!-- Pantalla 1 · héroe centred: qué es, a quién sirve y el punto de venta funcionando -->
+  <section class="hero hero--centred" aria-labelledby="hero-h">
+    <div class="wrap"><div class="hero-text">
+      <div class="hero__c">
+        <a class="pill" href="app.html?demo=1"><span>Demostración lista</span><span class="muted">Pruébala sin crear cuenta</span></a>
+        <h1 id="hero-h" aria-label="Ventas e inventario para tu negocio">Ventas e inventario para tu negocio</h1>
+        <p class="hero__lead">Cobra en el punto de venta, descuenta el stock al instante y lleva las cuentas de cada cliente. Seis módulos conectados, en el celular o la computadora.</p>
+        <div class="btn-row"><a class="btn btn--primary" href="app.html">Entrar a la app</a><a class="btn btn--secondary" href="app.html?demo=1">Ver la demostración</a></div>
       </div>
-
-      <!-- Vista previa: maqueta con datos de ejemplo, hecha con los mismos estilos que la app -->
-      <div class="pv" role="img" aria-label="Vista de ejemplo del dashboard de AINova Management">
-        <div class="pv-bar"><span class="pv-dots"><i></i><i></i><i></i></span><span class="pv-title">Dashboard</span><span class="badge badge-info no-dot">Vista de ejemplo</span></div>
-        <div class="pv-body">
-          <div class="pv-side" aria-hidden="true">
-            <span class="on"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-dashboard"/></svg></span>
-            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-cart"/></svg></span>
-            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-package"/></svg></span>
-            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-users"/></svg></span>
-            <span><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-wallet"/></svg></span>
-          </div>
-          <div class="pv-main" aria-hidden="true">
-            <div class="pv-kpis">
-              <div class="pv-kpi"><small>Ventas</small><b>RD$18,450</b></div>
-              <div class="pv-kpi"><small>Costo</small><b>RD$9,120</b></div>
-              <div class="pv-kpi hero"><small>Ganancia</small><b>RD$9,330</b></div>
+      <div class="hero__window" role="img" aria-label="Punto de venta de AINova registrando una venta de dos cafés y una leche en efectivo">
+        <div class="ly-piece d-win d-win--dark" aria-hidden="true">
+          <div class="d-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span><span><b>Venta 1042</b> · Punto de venta</span><span class="sp"></span><span>Efectivo · RD$</span></div>
+          <div class="d-win__body">
+            <div class="inbox">
+              <div class="q">Buscar producto</div>
+              <div class="t is-on"><i style="background:#f3c98b">CM</i><b>Café molido 250 g</b><time>RD$195</time><span>2 en la venta · stock 15</span></div>
+              <div class="t"><i style="background:#9fd3b5">AR</i><b>Arroz selecto 5 lb</b><time>RD$215</time><span>Stock 22</span></div>
+              <div class="t"><i style="background:#a9c4f0">LE</i><b>Leche entera 1 L</b><time>RD$85</time><span>1 en la venta · stock 30</span></div>
+              <div class="t"><i style="background:#e9b4a4">AZ</i><b>Azúcar 5 lb</b><time>RD$160</time><span>Stock 12</span></div>
+              <div class="t"><i style="background:#d8d2a6">DL</i><b>Detergente líquido 1 L</b><time>RD$140</time><span>Stock bajo: quedan 5</span></div>
             </div>
-            <div class="pv-chart">
-              <span class="col"><i style="height:38%"></i><i class="b" style="height:20%"></i></span>
-              <span class="col"><i style="height:62%"></i><i class="b" style="height:31%"></i></span>
-              <span class="col"><i style="height:48%"></i><i class="b" style="height:26%"></i></span>
-              <span class="col"><i style="height:86%"></i><i class="b" style="height:42%"></i></span>
-              <span class="col"><i style="height:70%"></i><i class="b" style="height:36%"></i></span>
-              <span class="col"><i style="height:100%"></i><i class="b" style="height:50%"></i></span>
-              <span class="col"><i style="height:78%"></i><i class="b" style="height:39%"></i></span>
-            </div>
-            <div class="pv-rows">
-              <div class="pv-row warn"><span>Refresco cola 355 ml</span><b>2 uds.</b></div>
-              <div class="pv-row danger"><span>María F. · crédito vencido</span><b>RD$500</b></div>
+            <div class="convo">
+              <div class="d-chat" data-ly-steps="900">
+                <div class="d-msg d-msg--me">2 × Café molido 250 g y 1 × Leche entera 1 L<small>10:42</small></div>
+                <div class="d-tool" data-step>Calculando el total y descontando el stock</div>
+                <div class="d-msg d-msg--bot" data-step>Venta registrada: RD$475.00 en efectivo. Café molido 15 → 13 y leche entera 30 → 29.<small>FAC-0021 · lista para descargar</small></div>
+                <div class="acts" data-step><span>Descargar</span><span>Nueva venta</span></div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </section>
+    </div></div>
+  </section>
 
-    <!-- Segunda pantalla: los módulos -->
-    <section id="modulos" class="lp-section">
-      <h2>Lo que necesitas para llevar tu negocio.</h2>
-      <p class="lp-sub">Seis módulos conectados entre sí: lo que vendes baja el inventario y lo que fías queda en la cuenta del cliente.</p>
-      <div class="mod-grid">
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-cart"/></svg></span><h3>Punto de venta</h3><p>Busca el producto, tócalo y cobra. Calcula el total y descuenta el stock al instante.</p></article>
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-package"/></svg></span><h3>Inventario</h3><p>Productos, categorías y precios con alertas cuando algo se está acabando.</p></article>
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-users"/></svg></span><h3>Clientes</h3><p>Ficha de cada cliente con su historial de compras, créditos y pagos.</p></article>
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-wallet"/></svg></span><h3>Cuentas por cobrar</h3><p>Quién debe, cuánto y desde cuándo. Abonos, fechas límite y recargo por mora.</p></article>
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-file"/></svg></span><h3>Facturas y reportes</h3><p>Cada venta genera su factura. Descárgala, edítala o exporta el historial.</p></article>
-        <article class="mod"><span class="mod-ico"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-team"/></svg></span><h3>Equipo y permisos</h3><p>Invita a tus empleados con un link y decide qué puede ver cada uno.</p></article>
+  <!-- Pantalla 2 · app-frame: el producto entero, la lista de cuentas junto al estado de cuenta abierto -->
+  <section class="section" id="cuentas" aria-labelledby="cuentas-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="section-head span-5"><h2 id="cuentas-h">Cuentas por cobrar de cada cliente</h2></div>
+        <div class="span-6 start-7 stack-4">
+          <p class="t-lead muted">Mira quién debe, cuánto y desde cuándo. Registra los abonos y el sistema suma el recargo por mora cuando pasa la fecha límite.</p>
+          <a class="link" href="app.html?demo=1">Ver la demostración</a>
+        </div>
       </div>
-    </section>
+      <div class="ui app fill" role="img" aria-label="Lista de cuentas por cobrar junto al estado de cuenta abierto de María Fernández" data-ui-pause-host>
+        <div class="app__pane app__pane--list" data-ui-still>
+          <div class="ui ui-panel ui-win" data-ui="window" data-open="Vencido" data-work="Abonando" data-done="Al día">
+            <div class="ui-win__bar">
+              <span class="ui-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="ui-win__crumb">Cuentas por cobrar <i>/</i> <b>Vencidas</b></span>
+              <span class="ui-spacer"></span>
+              <span class="ui-win__search" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span class="ui-win__ph">Buscar</span><span class="ui-kbd">/</span></span>
+            </div>
+            <div class="ui-win__body">
+              <nav class="ui-win__side" aria-hidden="true">
+                <span class="ui-win__nav is-on"><svg class="ui-icon" viewBox="0 0 16 16"><path d="M2.5 9h3l1 1.5h3l1-1.5h3"/><path d="M2.5 9 4 3.5h8L13.5 9v3.5h-11z"/></svg>Todas<em>9</em></span>
+                <span class="ui-win__nav"><svg class="ui-icon" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2 1.5"/></svg>Vencidas<em>3</em></span>
+                <span class="ui-win__nav"><svg class="ui-icon" viewBox="0 0 16 16"><circle cx="8" cy="6" r="2.5"/><path d="M3.5 13.5c.6-2.3 2.4-3.5 4.5-3.5s3.9 1.2 4.5 3.5"/></svg>Abonos<em>2</em></span>
+                <span class="ui-win__nav"><svg class="ui-icon" viewBox="0 0 16 16"><path d="m3.5 8.4 2.8 2.8 6.2-6.4"/></svg>Al día</span>
+              </nav>
+              <div class="ui-win__main">
+                <div class="ui-win__cols" aria-hidden="true"><span>Cliente</span><span>Crédito</span><span>Estado</span><span>Plazo</span></div>
+                <ul class="ui-win__rows">
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="1">MF</span><span class="ui-win__who">María Fernández</span><span class="ui-win__sub">FAC-0012 · RD$500</span><span class="ui-win__st" data-st>Vencido</span><span class="ui-win__age">3 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="3">PA</span><span class="ui-win__who">Pedro Almonte</span><span class="ui-win__sub">FAC-0015 · RD$1,250</span><span class="ui-win__st" data-st>Vencido</span><span class="ui-win__age">5 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="4">LR</span><span class="ui-win__who">Luisa Reyes</span><span class="ui-win__sub">FAC-0017 · RD$320</span><span class="ui-win__st" data-st>Vencido</span><span class="ui-win__age">8 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="2">CP</span><span class="ui-win__who">Carlos Peña</span><span class="ui-win__sub">FAC-0019 · RD$880</span><span class="ui-win__st is-you" data-st>Vence hoy</span><span class="ui-win__age">0 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="5">AG</span><span class="ui-win__who">Ana Gómez</span><span class="ui-win__sub">FAC-0020 · RD$640</span><span class="ui-win__st is-done" data-st>Al día</span><span class="ui-win__age">6 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="3">JM</span><span class="ui-win__who">José Martínez</span><span class="ui-win__sub">FAC-0021 · RD$410</span><span class="ui-win__st is-done" data-st>Al día</span><span class="ui-win__age">9 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="1">RS</span><span class="ui-win__who">Rosa Santos</span><span class="ui-win__sub">FAC-0023 · RD$270</span><span class="ui-win__st is-done" data-st>Al día</span><span class="ui-win__age">12 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="4">DT</span><span class="ui-win__who">Daniel Tavárez</span><span class="ui-win__sub">FAC-0024 · RD$1,050</span><span class="ui-win__st is-done" data-st>Al día</span><span class="ui-win__age">15 d</span></li>
+                  <li class="ui-win__row" data-row><span class="ui-avatar" data-tone="2">EV</span><span class="ui-win__who">Elena Vargas</span><span class="ui-win__sub">FAC-0026 · RD$190</span><span class="ui-win__st is-done" data-st>Al día</span><span class="ui-win__age">20 d</span></li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="app__pane app__pane--open" data-ui-loop>
+          <div class="ui ui-doc" data-ui="doc">
+            <article class="ui-doc__page">
+              <div class="ui-doc__label">Estado de cuenta · María Fernández</div>
+              <div class="ui-doc__title">Crédito FAC-0012</div>
+              <div class="ui-doc__text">Compra a crédito del 3 de noviembre por RD$1,250.00. Fecha límite de pago: <mark class="ui-doc__mark is-on">18 de noviembre</mark>.</div>
+              <div class="ui-doc__text">Abonos registrados: RD$750.00 el 10 de noviembre. Cada abono baja el saldo y queda en el historial de la cuenta.</div>
+              <div class="ui-doc__text">Pasada la fecha límite se suma un <mark class="ui-doc__mark" data-kind="Recargo" data-msg="Se calcula sobre el saldo pendiente." data-where="Cuentas por cobrar">recargo por mora</mark> al saldo del cliente.</div>
+              <div class="ui-doc__text">Saldo pendiente: RD$500.00. Se puede cobrar en efectivo, tarjeta o transferencia.</div>
+              <div class="ui-doc__text">Al saldar la cuenta el crédito pasa a Al día y la factura queda lista para descargar en imagen o PDF.</div>
+            </article>
+            <aside class="ui-doc__note ui-panel is-on" aria-live="polite">
+              <div class="ui-doc__kind"><span class="ui-doc__dot"></span><span data-doc-kind>Vencido</span></div>
+              <div class="ui-doc__msg" data-doc-msg>Venció el 18 de noviembre. Saldo de RD$500.00.</div>
+              <div class="ui-doc__where" data-doc-where>Cuentas por cobrar</div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 
-    <section class="lp-final">
-      <div>
-        <h2>Empieza hoy, sin instalar nada.</h2>
+  <!-- Pantallas 3 y 4 · features-2x2: cuatro vistas de lo que hace -->
+  <section class="section g2" id="funciones" aria-labelledby="funciones-h">
+    <div class="wrap">
+      <div class="group">
+        <div class="section-head">
+          <h2 id="funciones-h">Lo que necesitas cada día. <span class="muted">Ventas, stock, facturas y configuración.</span></h2>
+        </div>
+        <div class="grid">
+          <article class="card card--row card--open span-6">
+            <h3>Resume las ventas del día</h3>
+            <p>Ventas, costo y ganancia al abrir el panel, sin hacer cuentas a mano.</p>
+            <div class="panel">
+              <div class="stage stage--fade-b"><div class="at-rise fit to-edge" style="--fit-max:400px;--ax:max(24px, 50% - 200px);--ay:56px;--ay-sm:56px" data-ui-loop>
+                <div class="ui ui-panel ui-stat" data-ui="stat" data-ui-opts='{"fill":true}' data-from="14" data-to="18" data-suffix="">
+                  <div class="ui-stat__head">
+                    <div class="ui-stat__top">
+                      <span class="ui-stat__label">Ventas de hoy</span>
+                      <span class="ui-stat__range">Últimos 14 días<svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="m4.5 6.5 3.5 3.5 3.5-3.5"/></svg></span>
+                    </div>
+                    <div class="ui-stat__line">
+                      <span class="ui-stat__num" data-stat-num>RD$18,450</span>
+                      <span class="ui-chip ui-chip--plain ui-stat__delta"><svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 9.5v-7M3 5.5l3-3 3 3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>RD$9,330</span>
+                      <span class="ui-stat__sub">de ganancia</span>
+                    </div>
+                  </div>
+                  <div class="ui-stat__chart">
+                    <svg class="ui-stat__svg" viewBox="0 0 400 120" preserveAspectRatio="none" aria-hidden="true">
+                      <path class="ui-stat__grid" d="M0 30.5H400M0 60.5H400M0 90.5H400"/>
+                      <path class="ui-stat__cover" fill-rule="evenodd" d=""/>
+                      <g class="ui-stat__bars"></g>
+                    </svg>
+                    <div class="ui-stat__axis" aria-hidden="true"><span>8 nov.</span><span>15 nov.</span><span>Hoy</span></div>
+                  </div>
+                </div>
+              </div></div>
+            </div>
+          </article>
+          <article class="card card--row card--open span-6">
+            <h3>Avisa cuando algo se acaba</h3>
+            <p>Cada producto tiene su alerta de stock bajo, para que repongas a tiempo.</p>
+            <div class="panel">
+              <div class="stage stage--fade-b"><div class="at-rise fit" style="--fit-max:380px;--ax:max(24px, 50% - 190px);--ay:calc(100% - 180px);--ay-sm:calc(100% - 180px)">
+                <div class="ui ui-notify" data-ui="notify">
+                  <ul class="ui-notify__list" data-notify-list>
+                    <li class="ui-note"><span class="ui-agent ui-note__av" aria-hidden="true"></span><span class="ui-note__text"><span class="ui-note__title">Stock bajo: Refresco cola<time>ahora</time></span><span class="ui-note__body">Quedan 2 unidades de 355 ml</span></span><span class="ui-btn ui-btn--sm ui-note__btn">Ver</span></li>
+                    <li class="ui-note"><span class="ui-avatar ui-note__av" data-tone="5">MF</span><span class="ui-note__text"><span class="ui-note__title">Crédito vencido: María F.<time>4 min</time></span><span class="ui-note__body">Saldo pendiente de RD$500.00</span></span></li>
+                    <li class="ui-note"><span class="ui-note__ico"><svg class="ui-icon" viewBox="0 0 16 16"><path d="m3.5 8.4 2.8 2.8 6.2-6.4"/></svg></span><span class="ui-note__text"><span class="ui-note__title">Venta registrada<time>12 min</time></span><span class="ui-note__body">FAC-0021 · RD$475.00 en efectivo</span></span></li>
+                  </ul>
+                </div>
+              </div></div>
+            </div>
+          </article>
+        </div>
+      </div>
+      <div class="grid">
+        <article class="card card--row card--open span-6">
+          <h3>Encuentra cualquier factura</h3>
+          <p>Busca por número o por cliente y descárgala en imagen o en PDF.</p>
+          <div class="panel">
+            <div class="stage stage--fade-b"><div class="at-rise fit" style="--fit-max:400px;--ax:max(24px, 50% - 200px);--ay:72px;--ay-sm:56px">
+              <div class="ui ui-panel ui-search" data-ui="search">
+                <div class="ui-search__field">
+                  <svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>
+                  <span class="ui-search__q"><span data-search-q>FAC-001</span><i class="ui-search__caret"></i></span>
+                  <kbd class="ui-search__kbd">Ctrl K</kbd>
+                </div>
+                <div class="ui-search__group">Facturas</div>
+                <ul class="ui-search__list" data-search-list>
+                  <li class="ui-search__row is-sel"><span class="ui-search__ico"><svg class="ui-icon" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="ui-search__t"><b>FAC-001</b>2, María Fernández</span><span class="ui-search__m">PDF</span></li>
+                  <li class="ui-search__row"><span class="ui-search__ico"><svg class="ui-icon" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="ui-search__t"><b>FAC-001</b>5, Pedro Almonte</span><span class="ui-search__m">PDF</span></li>
+                  <li class="ui-search__row"><span class="ui-search__ico"><svg class="ui-icon" viewBox="0 0 16 16"><path d="M4 2.5h5l3 3v8H4z"/><path d="M9 2.5v3h3"/></svg></span><span class="ui-search__t"><b>FAC-001</b>7, venta de mostrador</span><span class="ui-search__m">Imagen</span></li>
+                </ul>
+                <div class="ui-search__foot"><span><kbd>&uarr;</kbd><kbd>&darr;</kbd> para mover</span><span><kbd>Enter</kbd> para abrir</span></div>
+              </div>
+            </div></div>
+          </div>
+        </article>
+        <article class="card card--row card--open span-6">
+          <h3>Configura tu negocio en minutos</h3>
+          <p>Nombre, logotipo, colores, moneda y módulos, paso a paso y con guardado.</p>
+          <div class="panel">
+            <div class="stage stage--fade-b"><div class="at-rise fit" style="--fit-max:340px;--ax:max(24px, 50% - 170px);--ay:40px;--ay-sm:40px">
+              <div class="ui ui-panel ui-checks" data-ui="checklist">
+                <div class="ui-checks__head">
+                  <div class="ui-title">Tu negocio</div>
+                  <span class="ui-spacer"></span>
+                  <div class="ui-meta" data-checks-count>2 de 5</div>
+                </div>
+                <div class="ui-checks__bar"><i data-checks-bar style="--k:0.4"></i></div>
+                <ul class="ui-checks__list">
+                  <li class="ui-check is-done"><span class="ui-check__box"><svg viewBox="0 0 16 16"><path d="m4.5 8.2 2.3 2.3 4.7-5"/></svg></span><span class="ui-check__label">Datos del negocio</span></li>
+                  <li class="ui-check is-done"><span class="ui-check__box"><svg viewBox="0 0 16 16"><path d="m4.5 8.2 2.3 2.3 4.7-5"/></svg></span><span class="ui-check__label">Logotipo y colores</span></li>
+                  <li class="ui-check"><span class="ui-check__box"><svg viewBox="0 0 16 16"><path d="m4.5 8.2 2.3 2.3 4.7-5"/></svg></span><span class="ui-check__label">Moneda y formato de fecha</span></li>
+                  <li class="ui-check"><span class="ui-check__box"><svg viewBox="0 0 16 16"><path d="m4.5 8.2 2.3 2.3 4.7-5"/></svg></span><span class="ui-check__label">Módulos que vas a usar</span></li>
+                  <li class="ui-check"><span class="ui-check__box"><svg viewBox="0 0 16 16"><path d="m4.5 8.2 2.3 2.3 4.7-5"/></svg></span><span class="ui-check__label">Tu primera venta</span></li>
+                </ul>
+              </div>
+            </div></div>
+          </div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pantalla 5 · split-text-left: el equipo y sus permisos -->
+  <section class="section" id="equipo" aria-labelledby="equipo-h">
+    <div class="wrap">
+      <div class="grid">
+        <div class="span-5 stack-4">
+          <h2 id="equipo-h">Empleados con su propia cuenta</h2>
+          <p class="t-lead">Invita a cada empleado con un enlace y decide qué puede ver. Sus ventas quedan registradas a su nombre.</p>
+          <ul class="stack-2">
+            <li>Invitación por enlace, sin pedir contraseñas</li>
+            <li>Ventas, inventario y clientes desde el primer día</li>
+            <li>Panel y facturas solo si tú lo permites</li>
+          </ul>
+          <a class="link" href="app.html?demo=1">Ver la demostración</a>
+        </div>
+        <div class="frame frame--split frame--lit span-6 start-7">
+          <div class="stage stage--fade-br"><div class="at-rise fit" style="--fit-max:380px;--ax:max(24px, 50% - 190px);--ay:56px;--ay-sm:56px" data-ui-loop>
+            <div class="ui ui-panel ui-toggles" data-ui="toggles">
+              <div class="ui-head">
+                <svg class="ui-icon ui-toggles__ico" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 13 4v3.6c0 3-2.1 5.4-5 6.6-2.9-1.2-5-3.6-5-6.6V4z"/><path d="m5.8 8 1.6 1.6 3-3.2"/></svg>
+                <div class="ui-title">Permisos de Ana</div>
+                <span class="ui-spacer"></span>
+                <div class="ui-meta" data-tg-count>2 de 3 activos</div>
+              </div>
+              <ul class="ui-toggles__list">
+                <li class="ui-tg">
+                  <span class="ui-tg__text"><span class="ui-tg__label">Ventas, inventario y clientes</span><span class="ui-tg__sub">Incluidos desde el primer día</span></span>
+                  <button class="ui-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Ventas, inventario y clientes"><i></i></button>
+                </li>
+                <li class="ui-tg">
+                  <span class="ui-tg__text"><span class="ui-tg__label">Ver el panel</span><span class="ui-tg__sub">Ventas, costo y ganancia</span></span>
+                  <button class="ui-switch is-on" type="button" role="switch" aria-checked="true" aria-label="Ver el panel"><i></i></button>
+                </li>
+                <li class="ui-tg">
+                  <span class="ui-tg__text"><span class="ui-tg__label">Ver facturas</span><span class="ui-tg__sub">Historial y exportación</span></span>
+                  <button class="ui-switch" type="button" role="switch" aria-checked="false" aria-label="Ver facturas"><i></i></button>
+                </li>
+              </ul>
+            </div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pantalla 6 · faq: las últimas preguntas, todas las respuestas abiertas -->
+  <section class="section" id="preguntas" aria-labelledby="preguntas-h">
+    <div class="wrap">
+      <div class="grid grid--top">
+        <div class="span-5 stack-4">
+          <h2 id="preguntas-h">Preguntas</h2>
+          <p class="t-lead muted">Lo que suelen preguntar antes de entrar por primera vez.</p>
+          <a class="link" href="app.html?demo=1">Ver la demostración</a>
+        </div>
+        <div class="faq span-6 start-7">
+          <div class="faq__item"><h3>¿Necesito instalar algo?</h3><p>No. Funciona en el navegador, en el celular o en la computadora. Entras con tu correo o con Google.</p></div>
+          <div class="faq__item"><h3>¿Puedo probarlo sin crear una cuenta?</h3><p>Sí. La demostración trae datos de ejemplo y no guarda nada en tu negocio.</p></div>
+          <div class="faq__item"><h3>¿Qué formas de pago acepta el punto de venta?</h3><p>Efectivo, tarjeta, transferencia y crédito. Lo que se fía pasa a cuentas por cobrar.</p></div>
+          <div class="faq__item"><h3>¿Puedo descargar mis facturas?</h3><p>Sí, en imagen o en PDF, y también puedes exportar el historial.</p></div>
+          <div class="faq__item"><h3>¿Los datos de varios negocios se mezclan?</h3><p>No. Cada negocio ve solo sus propios datos.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="footer closing footer--statement" id="contact" aria-labelledby="close-h">
+  <div class="wrap">
+    <div class="closing__cta close--type">
+      <div class="section-head">
+        <h2 id="close-h">Empieza hoy, sin instalar nada</h2>
         <p>Entra con tu correo o con Google y configura tu negocio en un minuto.</p>
       </div>
-      <a class="btn btn-primary btn-lg" href="app.html">Entrar a la app</a>
-    </section>
-  </main>
-</div>
-
-<footer class="lp-footer">
-  <div class="wrap">
-    <span>AINova Management</span>
+      <a class="btn btn--primary btn--xl btn--wide" href="app.html">Entrar a la app</a>
+    </div>
+    <div class="closing__links">
+      <div class="grid">
+        <div class="span-4 stack-4">
+          <a class="nav__logo" href="#top" aria-label="AINova Management, inicio"><img src="assets/logo-horizontal.png" alt="AINova Management" width="87" height="36"></a>
+          <p class="footer__lede">Ventas, inventario y cuentas por cobrar para pequeños negocios.</p>
+        </div>
+        <div class="span-2 footer__col"><h4>Producto</h4><ul><li><a href="#cuentas">Cuentas por cobrar</a></li><li><a href="#funciones">Funciones</a></li><li><a href="#equipo">Equipo</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Probar</h4><ul><li><a href="app.html?demo=1">Ver la demostración</a></li><li><a href="app.html">Entrar a la app</a></li></ul></div>
+        <div class="span-2 footer__col"><h4>Ayuda</h4><ul><li><a href="#preguntas">Preguntas</a></li></ul></div>
+      </div>
+      <div class="footer__legal">
+        <span>&copy; 2026 AINova Management</span>
+      </div>
+    </div>
   </div>
 </footer>
 
+<script type="module" src="assets/system.js"></script>
+<script type="module" src="assets/motion/motion.js"></script>
+<script type="module" src="assets/layout/layout.js"></script>
 </body>
 </html>
