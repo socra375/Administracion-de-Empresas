@@ -649,7 +649,11 @@ neon.auth.onAuthStateChange(async (event, session) => {
     let { data: bData } = await neon.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
 
     if (!bData && currentUserRole === 'admin') {
-      const { data: newB } = await neon.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
+      const { data: newB, error: newBErr } = await neon.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
+      if (newBErr) {
+        console.error('No se pudo crear el negocio:', newBErr);
+        toast.err("No se pudo crear tu negocio: " + newBErr.message + ". Recarga la página; si sigue igual, avísanos.");
+      }
       bData = newB;
     }
 
@@ -710,32 +714,35 @@ $('onboarding-form').addEventListener('submit', async (e) => {
   if (!bName) return toast.err("Por favor ingresa un nombre.");
 
   if (selectedBusinessType === 'group') {
-    // Insertar en business_members como admin
-    await neon.from('business_members').upsert([{
-      business_id: currentBusinessId,
-      user_id: currentBusinessId,
-      role: 'admin'
-    }]);
-
-    // Guardar estado parcial e invocar forzado de contraseña
-    await neon.from('businesses').upsert({
+    // Primero el negocio (la fila de admin depende de él), luego el admin
+    const { error: bizErr } = await neon.from('businesses').upsert({
       id: currentBusinessId,
       name: bName,
       business_type: 'group',
       team_size: teamSizeVal,
       onboarding_completed: true
     });
+    if (bizErr) return toast.err("No se pudo guardar tu negocio: " + bizErr.message);
+
+    // Insertar en business_members como admin
+    const { error: memErr } = await neon.from('business_members').upsert([{
+      business_id: currentBusinessId,
+      user_id: currentBusinessId,
+      role: 'admin'
+    }]);
+    if (memErr) return toast.err("No se pudo registrar tu usuario como administrador: " + memErr.message);
     setBusiness({ ...(currentBusinessData || {}), id: currentBusinessId, name: bName, business_type: 'group', team_size: teamSizeVal, onboarding_completed: true });
 
     $('onboarding-screen').classList.add('hidden');
     openModal('modal-forced-password');
   } else {
-    await neon.from('businesses').upsert({
+    const { error: bizErr } = await neon.from('businesses').upsert({
       id: currentBusinessId,
       name: bName,
       business_type: 'individual',
       onboarding_completed: true
     });
+    if (bizErr) return toast.err("No se pudo guardar tu negocio: " + bizErr.message);
     setBusiness({ ...(currentBusinessData || {}), id: currentBusinessId, name: bName, business_type: 'individual', onboarding_completed: true });
 
     $('onboarding-screen').classList.add('hidden');
