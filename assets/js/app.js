@@ -585,6 +585,21 @@ $('login-form').addEventListener('submit', async (e) => {
   });
 });
 
+
+// Pregunta a la base quién cree que es la persona de esta sesión (función public.whoami).
+// Si no coincide con el usuario de la sesión, las reglas de seguridad rechazarán todo; así el
+// motivo se ve en pantalla en lugar de un "violates row-level security" sin explicación.
+async function checkDatabaseIdentity(userId) {
+  try {
+    const { data, error } = await neon.rpc('whoami');
+    console.info('whoami:', data, error);
+    if (error) return;
+    if (!data?.auth_uid || data.auth_uid !== userId) {
+      toast.err(`La base de datos no reconoce tu sesión (te ve como ${data?.auth_uid || 'nadie'}). Cierra sesión y vuelve a entrar; si sigue igual, avísanos.`);
+    }
+  } catch (e) { console.error('whoami:', e); }
+}
+
 neon.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
     const userId = session.user.id;
@@ -644,6 +659,8 @@ neon.auth.onAuthStateChange(async (event, session) => {
         currentUserRole = 'admin';
       }
     }
+
+    await checkDatabaseIdentity(userId);
 
     // Cargar Ajustes y Datos de Negocio
     let { data: bData } = await neon.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
@@ -870,7 +887,10 @@ async function initCustomersAndCredits() {
         name,
         phone: $('cust-phone').value
       }]);
-      if (error) return toast.err("No se pudo guardar el cliente: " + error.message);
+      if (error) {
+        if (/row-level security/i.test(error.message || '')) { const { data: who } = await neon.rpc('whoami'); console.error('Cliente rechazado por RLS. whoami:', who, 'negocio:', currentBusinessId); }
+        return toast.err("No se pudo guardar el cliente: " + error.message);
+      }
       $('customer-form').reset();
       closeModal('modal-customer-new');
       toast.ok(`Cliente «${name}» guardado.`);

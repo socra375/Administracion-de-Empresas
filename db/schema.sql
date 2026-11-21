@@ -507,3 +507,21 @@ revoke all on function public.redeem_invite_code(text, text) from public;
 grant execute on function public.process_sale(uuid, jsonb, text, uuid, date) to authenticated;
 grant execute on function public.process_credit_payment(uuid, uuid, numeric) to authenticated;
 grant execute on function public.redeem_invite_code(text, text) to authenticated;
+
+-- ---------------------------------------------------------------------------------------
+-- Diagnóstico: quién cree la base que es la persona de la petición. La app lo consulta al
+-- entrar y avisa si no coincide con la sesión (si no coincide, las reglas rechazan todo).
+-- ---------------------------------------------------------------------------------------
+create or replace function public.whoami() returns jsonb
+language sql stable security definer set search_path = ''
+as $$ select jsonb_build_object(
+  'db_role_invoker', session_user,
+  'private_uid', private.current_user_id(),
+  'auth_uid', auth.uid(),
+  'sub', auth.jwt()->>'sub',
+  'jwt_role', auth.jwt()->>'role',
+  'jwt_exp', auth.jwt()->>'exp',
+  'now', extract(epoch from now())::bigint,
+  'has_access_to_own_business', private.has_business_access(private.current_user_id())) $$;
+revoke all on function public.whoami() from public;
+grant execute on function public.whoami() to authenticated, anonymous;
