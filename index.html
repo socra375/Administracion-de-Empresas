@@ -102,6 +102,7 @@
   .app > .app__pane > .ui-panel { width: 100%; border: 0; border-radius: 0; box-shadow: none; }
   .app > .app__pane::after { content: ""; position: absolute; inset: auto 0 0 0; height: 64px; background: linear-gradient(transparent, var(--u-bg)); pointer-events: none; }
   @media (min-width: 1024px) and (max-width: 1279px) { .app.ui { grid-template-columns: minmax(0, 4fr) minmax(0, 8fr); } }
+  @media (min-width: 1280px) { main > section > .wrap > .app.ui.fill { min-height: 440px; } }
   @media (max-width: 1023px) {
     .app.ui { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
     .app > .app__pane--list { max-height: 252px; }
@@ -139,9 +140,20 @@
   .app__pane--open .ui-doc { width: 100%; height: 100%; padding: 32px 32px 0; }
   .app__pane--open .ui-doc__page { flex: 1; }
   @media (min-width: 1024px) { .app__pane--open .ui-doc { padding-right: 248px; } .app__pane--open .ui-doc__note { right: 32px; top: 32px; } }
+  /* ventanas bajas (portátiles, barra del navegador): héroe, secciones y pie miden al menos una
+     pantalla y crecen si su contenido lo pide; nunca se montan sobre la siguiente sección */
+  main > :is(section, .section):not(.hero, .section--hero), footer.closing {
+    height: auto; min-height: calc(var(--h, 1) * 100vh); min-height: calc(var(--h, 1) * 100svh); display: flex; flex-direction: column;
+  }
+  main > :is(section, .section):not(.hero, .section--hero) > :is(.wrap, .container), footer.closing > .wrap { flex: 1 0 auto; height: auto; min-height: 0; }
+  main > :is(.hero, .section--hero) { height: auto; min-height: 100vh; min-height: 100svh; display: flex; flex-direction: column; }
+  main > :is(.hero, .section--hero) > .wrap { flex: 1 0 auto; height: auto; }
+  main > :is(.hero, .section--hero) > .wrap > .hero-text { height: 100%; }
+  .hero--centred .hero__window { min-height: clamp(200px, 26svh, 340px); }
   /* teléfono: la ventana del héroe muestra solo la venta; la nota del estado de cuenta pasa arriba */
   @media (max-width: 639px) {
     .hero__window .d-win--dark .d-win__body { grid-template-columns: minmax(0, 1fr); min-height: 0; }
+    .hero--centred .hero__window { min-height: 240px; }
     .hero__window .inbox { display: none; }
     .app__pane--open .ui-doc { padding: 16px 16px 0; }
     .app__pane--open .ui-doc__note { position: static; width: auto; order: -1; margin: 0 0 12px; opacity: 1; transform: none; }
