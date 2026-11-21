@@ -1,0 +1,62 @@
+/* =====================================================================
+   AINova · adaptación a teléfonos pequeños (360 px) y a tabletas
+   Se carga después de app.css y motion.css: solo corrige y completa, no redefine el diseño.
+   ===================================================================== */
+
+/* ---- Importes: nunca se parten en dos líneas ------------------------------------------------
+   El tamaño sigue al ancho de la propia tarjeta (container query), así cabe igual en 2 columnas
+   a 360 px que en 3 a 768 px. */
+@media (max-width: 1279px) {
+  .kpi, .stat { container-type: inline-size; }
+  .kpi-value { font-size: clamp(16px, 14cqw, 26px); white-space: nowrap; overflow-wrap: normal; }
+  .stat b { font-size: clamp(15px, 13cqw, 22px); white-space: nowrap; overflow-wrap: normal; }
+}
+
+/* ---- Controles táctiles: objetivo de al menos 40 px ---------------------------------------- */
+@media (pointer: coarse), (max-width: 1023px) {
+  .btn { min-height: 44px; }
+  .btn-sm { min-height: 40px; }
+  .btn-icon { min-width: 44px; }
+  .chip, .period-btn, .seg > button, .tab-item { min-height: 40px; }
+  .seg > button { padding-inline: 14px; }
+  .popover-item { min-height: 44px; }
+}
+
+/* ---- Teléfono: barras de herramientas y filas que se rompían a 360 px ------------------------ */
+@media (max-width: 760px) {
+  .card-head { flex-wrap: wrap; }
+  .card-head > .toolbar.tight { flex: 1 1 100%; }
+  .card-head > .toolbar.tight > .input-icon { flex: 1 1 100%; max-width: none; }
+  .card-head > .toolbar.tight > .btn { flex: 1 1 100%; }
+  /* la marca de color de stock bajo / agotado deja de pisar el nombre del producto */
+  .table.stack .inv-low td:first-child, .table.stack .inv-out td:first-child { padding-left: 12px; }
+}
+@media (max-width: 380px) {
+  .dash-grid > .kpi, .dash-grid.kpi-only.three > .kpi { padding: 12px; }
+  .kpi-label { font-size: 12.5px; }
+}
+
+/* ---- Tableta: tablas anchas pasan a tarjetas ---------------------------------------------------
+   Cuentas por cobrar tiene siete columnas y se cortaba por la derecha entre 721 y 900 px. */
+@media (min-width: 721px) and (max-width: 900px) {
+  .table.stack-md thead { display: none; }
+  .table.stack-md, .table.stack-md tbody, .table.stack-md tr, .table.stack-md td { display: block; width: 100%; }
+  .table.stack-md tbody tr { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+  .table.stack-md tbody tr:last-child { border-bottom: 0; }
+  .table.stack-md td { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 5px 0; border: 0; text-align: right; }
+  .table.stack-md td::before { content: attr(data-label); flex: none; font-size: 12.5px; font-weight: 600; color: var(--text-3); text-align: left; }
+  .table.stack-md td.cell-main { display: block; text-align: left; font-weight: 600; font-size: 15px; padding-bottom: 6px; }
+  .table.stack-md td.cell-main::before, .table.stack-md td.no-label::before, .table.stack-md td.cell-actions::before { display: none; }
+  .table.stack-md td.cell-actions { justify-content: flex-end; padding-top: 8px; }
+  .table.stack-md .num { text-align: right; }
+}
+
+/* ---- Tableta: el punto de venta muestra el carrito a un lado, siempre a la vista ---------------
+   De 761 a 1023 px era una hoja inferior que solo aparecía al añadir productos. */
+@media (min-width: 761px) and (max-width: 1023px) {
+  .pos { grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
+  .pos-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .pos-cart { position: sticky; z-index: auto; left: auto; right: auto; bottom: auto; top: 84px; max-height: calc(100dvh - 104px); border-radius: var(--r-lg); border-bottom: 1px solid var(--border); transform: none; visibility: visible; transition: none; padding-bottom: 18px; box-shadow: none; }
+  .pos-cart-close, .pos-cartbar { display: none !important; }
+  #pos-cart-scrim { display: none !important; }
+}
