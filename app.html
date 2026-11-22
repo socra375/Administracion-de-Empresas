@@ -36,16 +36,14 @@
   <link rel="apple-touch-icon" href="logo-512.png">
   <meta property="og:title" content="AINova Management">
   <meta property="og:description" content="Ventas, inventario y cuentas por cobrar en un solo lugar.">
-  <meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
+  <meta property="og:image" content="https://ainova-management.vercel.app/logo-512.png">
   <meta name="twitter:card" content="summary">
 
   <!-- Cliente de Neon (autenticación + API de datos), empaquetado en vendor/. Conserva la
        interfaz de supabase-js, así que el resto de la app casi no cambió. Ver vendor/README.md. -->
   <script src="vendor/neon-supabase.js"></script>
   <!-- Chart.js, jsPDF y html2canvas -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.js" integrity="sha384-zYPBGXwO4633CABX/5Spf6emCKUJCfoOkhOMYyxMsatqQZPnDblmmOewfjsIVWCM" crossorigin="anonymous"></script>
 
   <!-- Sistema de diseño compartido con la presentación + estilos propios de la app -->
   <link rel="stylesheet" href="assets/css/ds.css">
@@ -86,7 +84,7 @@
   <div id="toast-region" role="status" aria-live="polite"></div>
 
   <!-- ===================== ACCESO ===================== -->
-  <section id="auth-screen" class="auth-screen">
+  <section id="auth-screen" class="auth-screen" role="main" aria-label="Acceso">
     <div class="auth-top">
       <a class="auth-brand" href="index.html?landing">
         <img src="logo.png" alt="" width="36" height="36">
@@ -162,7 +160,7 @@
   </section>
 
   <!-- ===================== CONFIGURACIÓN INICIAL (asistente por pasos) ===================== -->
-  <section id="onboarding-screen" class="onboarding hidden">
+  <section id="onboarding-screen" class="onboarding hidden" role="main" aria-label="Configuración inicial">
     <div class="wizard" id="wizard">
       <aside class="wiz-side">
         <div class="wiz-brand"><img src="assets/logo-horizontal.png" alt="AINova Management" width="136" height="56"></div>
@@ -281,7 +279,7 @@
     </aside>
 
     <div class="app-main">
-      <div class="demo-bar" id="demo-bar" role="note">
+      <div class="demo-bar" id="demo-bar" role="region" aria-label="Modo demostración">
         <b>DEMO</b>
         <span>Estás en la demostración con datos ficticios de «Nova Market Demo». Nada se guarda en tu negocio.</span>
         <button type="button" class="btn" id="demo-tour">Ver recorrido</button>
@@ -354,7 +352,7 @@
 
             <article class="card c-chart">
               <div class="card-head">
-                <div><h3 class="card-title">Ingresos y costos</h3><p class="card-sub" id="dash-chart-sub">Ventas, costo y ganancia del período</p></div>
+                <div><h3 aria-level="2" class="card-title">Ingresos y costos</h3><p class="card-sub" id="dash-chart-sub">Ventas, costo y ganancia del período</p></div>
                 <div class="legend">
                   <span><i style="background:var(--chart-1)"></i>Ventas</span>
                   <span><i style="background:var(--chart-3)"></i>Costo</span>
@@ -362,11 +360,11 @@
                 </div>
               </div>
               <div class="chart-box tall"><canvas id="chartTrend" aria-label="Gráfico de ingresos y costos" role="img"></canvas></div>
-              <div id="chartTrend-empty" class="empty hidden"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-chart"/></svg><h4>Todavía no hay ventas en este período</h4><p>Cuando registres ventas verás aquí cómo evolucionan.</p></div>
+              <div id="chartTrend-empty" class="empty hidden"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-chart"/></svg><h4 aria-level="3">Todavía no hay ventas en este período</h4><p>Cuando registres ventas verás aquí cómo evolucionan.</p></div>
             </article>
 
             <article class="card c-pay">
-              <div class="card-head"><h3 class="card-title">Métodos de pago</h3></div>
+              <div class="card-head"><h3 aria-level="2" class="card-title">Métodos de pago</h3></div>
               <div class="donut-wrap">
                 <div class="chart-box donut"><canvas id="chartPayments" aria-label="Ventas por método de pago" role="img"></canvas></div>
                 <div id="dash-payment-breakdown" class="pay-legend"></div>
@@ -374,20 +372,20 @@
             </article>
 
             <article class="card c-top">
-              <div class="card-head"><h3 class="card-title">Productos más vendidos</h3></div>
+              <div class="card-head"><h3 aria-level="2" class="card-title">Productos más vendidos</h3></div>
               <div id="dash-top-products-list" class="rank-list"></div>
             </article>
 
             <article class="card c-alerts">
-              <div class="card-head"><h3 class="card-title">Alertas</h3><span id="dash-alerts-count" class="badge badge-ok no-dot">Todo en orden</span></div>
-              <h4 class="mini-title">Stock bajo</h4>
+              <div class="card-head"><h3 aria-level="2" class="card-title">Alertas</h3><span id="dash-alerts-count" class="badge badge-ok no-dot">Todo en orden</span></div>
+              <h4 aria-level="3" class="mini-title">Stock bajo</h4>
               <div id="dash-low-stock-list" class="alert-list"></div>
-              <h4 class="mini-title">Créditos vencidos</h4>
+              <h4 aria-level="3" class="mini-title">Créditos vencidos</h4>
               <div id="dash-overdue-credits-list" class="alert-list"></div>
             </article>
 
             <article class="card c-recent">
-              <div class="card-head"><h3 class="card-title">Actividad reciente</h3></div>
+              <div class="card-head"><h3 aria-level="2" class="card-title">Actividad reciente</h3></div>
               <div id="dash-recent-list" class="activity-list"></div>
             </article>
           </div>
@@ -406,7 +404,7 @@
 
             <aside id="pos-cart" class="pos-cart card" aria-label="Venta actual">
               <div class="pos-cart-head">
-                <h3>Venta actual</h3>
+                <h3 aria-level="2">Venta actual</h3>
                 <div class="grow"></div>
                 <button type="button" id="btn-clear-cart" class="btn btn-ghost btn-sm">Vaciar</button>
                 <button type="button" id="btn-close-cart" class="btn btn-ghost btn-icon btn-sm pos-cart-close" aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button>
@@ -476,7 +474,7 @@
           <div class="card flat">
             <div class="table-wrap">
               <table class="table stack">
-                <thead><tr><th>Producto</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th><th>Estado</th><th></th></tr></thead>
+                <thead><tr><th>Producto</th><th>Categoría</th><th class="num">Precio</th><th class="num">Stock</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                 <tbody id="inventory-table-body"></tbody>
               </table>
             </div>
@@ -502,7 +500,7 @@
           <div class="card flat">
             <div class="table-wrap">
               <table class="table stack">
-                <thead><tr><th>Cliente</th><th>Teléfono</th><th class="num">Saldo pendiente</th><th>Estado</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Teléfono</th><th class="num">Saldo pendiente</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                 <tbody id="customers-table-body"></tbody>
               </table>
             </div>
@@ -532,7 +530,7 @@
           <div class="card flat">
             <div class="table-wrap">
               <table class="table stack stack-md">
-                <thead><tr><th>Cliente</th><th>Fecha</th><th>Vence</th><th class="num">Monto</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Estado</th><th></th></tr></thead>
+                <thead><tr><th>Cliente</th><th>Fecha</th><th>Vence</th><th class="num">Monto</th><th class="num">Abonado</th><th class="num">Saldo</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                 <tbody id="receivables-table-body"></tbody>
               </table>
             </div>
@@ -561,14 +559,14 @@
           </div>
 
           <div class="card">
-            <div class="card-head"><div><h3 class="card-title">Tendencia de ventas</h3><p class="card-sub">Últimos 30 días</p></div></div>
+            <div class="card-head"><div><h3 aria-level="2" class="card-title">Tendencia de ventas</h3><p class="card-sub">Últimos 30 días</p></div></div>
             <div class="chart-box"><canvas id="salesChart" aria-label="Tendencia de ventas de los últimos 30 días" role="img"></canvas></div>
-            <div id="salesChart-empty" class="empty hidden"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-chart"/></svg><h4>Sin ventas en los últimos 30 días</h4></div>
+            <div id="salesChart-empty" class="empty hidden"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-chart"/></svg><h4 aria-level="3">Sin ventas en los últimos 30 días</h4></div>
           </div>
 
           <div class="card flat">
             <div class="card-head">
-              <h3 class="card-title">Historial de facturas</h3>
+              <h3 aria-level="2" class="card-title">Historial de facturas</h3>
               <div class="toolbar tight">
                 <div class="input-icon"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-search"/></svg><input type="search" id="invoice-search" placeholder="Buscar N° o cliente" autocomplete="off"></div>
                 <button type="button" id="btn-export-invoices" class="btn btn-sm"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-download"/></svg>Exportar CSV</button>
@@ -576,7 +574,7 @@
             </div>
             <div class="table-wrap">
               <table class="table stack">
-                <thead><tr><th>N° factura</th><th>Fecha</th><th>Cliente</th><th class="num">Total</th><th></th></tr></thead>
+                <thead><tr><th>N° factura</th><th>Fecha</th><th>Cliente</th><th class="num">Total</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                 <tbody id="invoices-table-body"></tbody>
               </table>
             </div>
@@ -588,7 +586,7 @@
         <section id="sec-employees" class="view-module page hidden">
           <div class="employees-grid">
             <div class="card">
-              <div class="card-head"><div><h3 class="card-title">Invitar a un empleado</h3><p class="card-sub">Link único, válido por 7 días y de un solo uso.</p></div></div>
+              <div class="card-head"><div><h3 aria-level="2" class="card-title">Invitar a un empleado</h3><p class="card-sub">Link único, válido por 7 días y de un solo uso.</p></div></div>
               <p class="hint">Al abrirlo, el código queda precargado: el empleado no tiene que copiar ni recordar nada.</p>
               <button type="button" id="btn-generate-invite" class="btn btn-primary" style="margin-top:14px"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-link"/></svg>Generar link de invitación</button>
 
@@ -603,15 +601,15 @@
               </div>
 
               <hr class="divider">
-              <h4 class="mini-title">Invitaciones</h4>
+              <h4 aria-level="3" class="mini-title">Invitaciones</h4>
               <div id="invites-list" class="invite-list"></div>
             </div>
 
             <div class="card flat">
-              <div class="card-head"><div><h3 class="card-title">Empleados</h3><p class="card-sub">Por defecto ven Punto de venta, Inventario y Clientes. Activa accesos extra por persona; se aplican la próxima vez que inicien sesión.</p></div></div>
+              <div class="card-head"><div><h3 aria-level="2" class="card-title">Empleados</h3><p class="card-sub">Por defecto ven Punto de venta, Inventario y Clientes. Activa accesos extra por persona; se aplican la próxima vez que inicien sesión.</p></div></div>
               <div class="table-wrap">
-                <table class="table stack">
-                  <thead><tr><th>Nombre y rol</th><th>Cargo</th><th>Ver Dashboard</th><th>Ver Facturas</th><th>Agregado</th><th></th></tr></thead>
+                <table class="table stack stack-md">
+                  <thead><tr><th>Nombre y rol</th><th>Cargo</th><th>Ver Dashboard</th><th>Ver Facturas</th><th>Agregado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                   <tbody id="employees-table-body"></tbody>
                 </table>
               </div>
@@ -641,7 +639,7 @@
 
               <!-- Mi cuenta -->
               <div id="settings-page-account" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Mi cuenta</h3><p class="card-sub" id="account-email">—</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Mi cuenta</h3><p class="card-sub" id="account-email">—</p></div></div>
                 <div class="row-switch"><div><b>Contraseña</b><small>Te enviamos un enlace al correo para crearla o cambiarla.</small></div><button type="button" id="btn-set-password" class="btn btn-sm"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-key"/></svg>Crear o cambiar</button></div>
                 <div class="row-switch"><div><b>Tutorial de bienvenida</b><small>Recorre el sistema con datos de ejemplo. No toca tu negocio.</small></div><button type="button" class="btn btn-sm js-start-tour"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-info"/></svg>Ver tutorial</button></div>
                 <div class="row-switch"><div><b>Cerrar sesión</b><small>Saldrás de este dispositivo.</small></div><button type="button" id="btn-logout-account" class="btn btn-sm btn-danger js-logout"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-logout"/></svg>Salir</button></div>
@@ -649,7 +647,7 @@
 
               <!-- Apariencia -->
               <div id="settings-page-customization" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Apariencia</h3><p class="card-sub">Elige cómo se ve la app en este dispositivo.</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Apariencia</h3><p class="card-sub">Elige cómo se ve la app en este dispositivo.</p></div></div>
                 <div class="theme-cards" role="group" aria-label="Tema">
                   <button type="button" class="theme-card" data-theme-set="light"><span class="tc-preview tc-light"><i></i><i></i><i></i></span><b><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-sun"/></svg> Claro</b><small>Fondo cálido, ideal con luz de día.</small></button>
                   <button type="button" class="theme-card" data-theme-set="dark"><span class="tc-preview tc-dark"><i></i><i></i><i></i></span><b><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-moon"/></svg> Oscuro</b><small>Grafito, más cómodo de noche.</small></button>
@@ -658,7 +656,7 @@
                 <p class="hint" style="margin-top:10px">También puedes cambiarlo en cualquier momento desde el icono de la barra superior.</p>
 
                 <hr class="divider">
-                <h4 class="mini-title">Fondo de pantalla</h4>
+                <h4 aria-level="3" class="mini-title">Fondo de pantalla</h4>
                 <p class="hint" style="margin:4px 0 12px">Usa una imagen propia (una foto o una captura) como fondo en este dispositivo. Se aplica un velo suave para que todo siga legible.</p>
                 <div class="bg-row">
                   <img id="cfg-bg-preview" class="bg-preview hidden" alt="">
@@ -669,19 +667,19 @@
 
               <!-- Preferencias del negocio -->
               <div id="tab-cfg-prefs" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Preferencias y módulos</h3><p class="card-sub">Lo mismo que elegiste en la configuración inicial.</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Preferencias y módulos</h3><p class="card-sub">Lo mismo que elegiste en la configuración inicial.</p></div></div>
                 <form id="form-cfg-prefs">
-                  <h4 class="mini-title">General</h4><div id="s-general"></div>
-                  <h4 class="mini-title">Colores de marca</h4><div id="s-brand"></div>
-                  <h4 class="mini-title">Región</h4><div id="s-regional"></div>
-                  <h4 class="mini-title">Módulos</h4><div id="s-modules"></div>
+                  <h4 aria-level="3" class="mini-title">General</h4><div id="s-general"></div>
+                  <h4 aria-level="3" class="mini-title">Colores de marca</h4><div id="s-brand"></div>
+                  <h4 aria-level="3" class="mini-title">Región</h4><div id="s-regional"></div>
+                  <h4 aria-level="3" class="mini-title">Módulos</h4><div id="s-modules"></div>
                   <button type="submit" class="btn btn-primary" style="margin-top:16px">Guardar preferencias</button>
                 </form>
               </div>
 
               <!-- Datos del negocio -->
               <div id="tab-cfg-business" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Datos del negocio</h3><p class="card-sub">Aparecen en tus facturas.</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Datos del negocio</h3><p class="card-sub">Aparecen en tus facturas.</p></div></div>
                 <form id="form-cfg-business">
                   <div class="form-grid">
                     <div class="field"><label for="cfg-name">Nombre comercial</label><input type="text" id="cfg-name" required></div>
@@ -704,7 +702,7 @@
 
               <!-- Moneda e impuestos -->
               <div id="tab-cfg-tax" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Moneda e impuestos</h3></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Moneda e impuestos</h3></div></div>
                 <form id="form-cfg-tax">
                   <div class="field" style="max-width:320px">
                     <label for="cfg-currency-symbol">Símbolo de moneda</label>
@@ -729,7 +727,7 @@
 
               <!-- Métodos de pago -->
               <div id="tab-cfg-payments" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Métodos de pago</h3><p class="card-sub">Los desactivados no aparecen en el Punto de venta.</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Métodos de pago</h3><p class="card-sub">Los desactivados no aparecen en el Punto de venta.</p></div></div>
                 <form id="form-cfg-payments">
                   <div class="row-switch"><div><b>Efectivo</b></div><label class="switch"><input type="checkbox" id="cfg-pm-efectivo" checked><span></span></label></div>
                   <div class="row-switch"><div><b>Transferencia</b></div><label class="switch"><input type="checkbox" id="cfg-pm-transferencia" checked><span></span></label></div>
@@ -741,7 +739,7 @@
 
               <!-- Inventario y alertas -->
               <div id="tab-cfg-alerts" class="settings-subpage card hidden">
-                <div class="card-head"><div><h3 class="card-title">Inventario y alertas</h3></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Inventario y alertas</h3></div></div>
                 <form id="form-cfg-alerts">
                   <div class="row-switch"><div><b>Alerta de stock bajo</b><small>Marca los productos con poco stock en el Punto de venta.</small></div><label class="switch"><input type="checkbox" id="cfg-global-low-stock" checked><span></span></label></div>
                   <button type="submit" class="btn btn-primary" style="margin-top:14px">Guardar ajustes de inventario</button>
@@ -750,7 +748,7 @@
 
               <!-- Registro de actividad -->
               <div id="tab-cfg-activity" class="settings-subpage card flat hidden">
-                <div class="card-head"><div><h3 class="card-title">Registro de actividad</h3><p class="card-sub">Últimas 30 acciones en el negocio.</p></div></div>
+                <div class="card-head"><div><h3 aria-level="2" class="card-title">Registro de actividad</h3><p class="card-sub">Últimas 30 acciones en el negocio.</p></div></div>
                 <div class="table-wrap">
                   <table class="table stack">
                     <thead><tr><th>Usuario</th><th>Acción</th><th>Fecha y hora</th></tr></thead>
@@ -772,8 +770,8 @@
   <!-- Hoja "Más" (móvil) -->
   <div id="more-sheet" class="modal-root hidden">
     <div class="modal-scrim" data-close-modal></div>
-    <div class="modal-card">
-      <div class="modal-head"><div><h3>Más opciones</h3><p id="more-sheet-sub"></p></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="more-sheet-title">
+      <div class="modal-head"><div><h3 id="more-sheet-title" aria-level="2">Más opciones</h3><p id="more-sheet-sub"></p></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
       <div class="modal-body">
         <div id="more-sheet-list" class="more-list"></div>
         <hr class="divider">
@@ -792,11 +790,11 @@
   <!-- ===================== VENTANAS ===================== -->
 
   <!-- Producto -->
-  <div id="modal-product" class="modal-root hidden">
+  <div id="modal-product" class="modal-root hidden" role="dialog" aria-modal="true" aria-labelledby="product-form-title">
     <div class="modal-scrim" data-close-modal></div>
     <form id="product-form" class="modal-card">
       <div class="modal-head">
-        <div><h3 id="product-form-title">Nuevo producto</h3><p>Los precios se guardan sin impuestos añadidos.</p></div>
+        <div><h3 aria-level="2" id="product-form-title">Nuevo producto</h3><p>Los precios se guardan sin impuestos añadidos.</p></div>
         <button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button>
       </div>
       <div class="modal-body">
@@ -821,9 +819,9 @@
   <!-- Historial de inventario -->
   <div id="modal-inventory-history" class="modal-root hidden">
     <div class="modal-scrim" data-close-modal></div>
-    <div class="modal-card wide">
+    <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="modal-inventory-history-title">
       <div class="modal-head">
-        <div><h3>Historial de movimientos</h3><p>Últimos 100: entradas, salidas por venta y ajustes manuales.</p></div>
+        <div><h3 id="modal-inventory-history-title" aria-level="2">Historial de movimientos</h3><p>Últimos 100: entradas, salidas por venta y ajustes manuales.</p></div>
         <button type="button" id="btn-close-inventory-history" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button>
       </div>
       <div class="modal-body flush">
@@ -838,26 +836,30 @@
   </div>
 
   <!-- Nuevo cliente -->
-  <div id="modal-customer-new" class="modal-root hidden">
+  <div id="modal-customer-new" class="modal-root hidden" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
     <div class="modal-scrim" data-close-modal></div>
     <form id="customer-form" class="modal-card narrow">
-      <div class="modal-head"><div><h3>Nuevo cliente</h3><p>Podrás venderle a crédito y llevar su cuenta.</p></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
+      <div class="modal-head"><div><h3 aria-level="2" id="customer-form-title">Nuevo cliente</h3><p id="customer-form-sub">Podrás venderle a crédito y llevar su cuenta.</p></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
       <div class="modal-body">
         <div class="field"><label for="cust-name">Nombre del cliente</label><input type="text" id="cust-name" maxlength="150" required></div>
-        <div class="field" style="margin-bottom:0"><label for="cust-phone">Teléfono <span class="muted">(opcional)</span></label><input type="tel" id="cust-phone" maxlength="30"></div>
+        <div class="field" style="margin-bottom:0"><label for="cust-phone">Teléfono <span class="muted">(opcional)</span></label><input type="tel" id="cust-phone" maxlength="25" inputmode="tel" autocomplete="off" placeholder="809-555-0101"></div>
       </div>
-      <div class="modal-foot"><button type="button" class="btn" data-close-modal>Cancelar</button><button type="submit" class="btn btn-primary">Guardar cliente</button></div>
+      <div class="modal-foot"><button type="button" class="btn" data-close-modal>Cancelar</button><button type="submit" class="btn btn-primary" id="customer-form-submit">Guardar cliente</button></div>
     </form>
   </div>
 
   <!-- Perfil y estado de cuenta del cliente -->
   <div id="modal-customer-account" class="modal-root hidden">
     <div class="modal-scrim" data-close-modal></div>
-    <div class="modal-card wide">
+    <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="account-customer-name">
       <div class="modal-head">
         <div class="profile-head">
           <span id="account-avatar" class="avatar lg">CL</span>
-          <div><h3 id="account-customer-name">Cuenta de cliente</h3><p id="account-customer-phone"></p></div>
+          <div><h3 aria-level="2" id="account-customer-name">Cuenta de cliente</h3><p id="account-customer-phone"></p></div>
+        </div>
+        <div class="profile-actions">
+          <button type="button" id="btn-edit-customer" class="btn btn-sm"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-pencil"/></svg>Editar</button>
+          <button type="button" id="btn-delete-customer" class="btn btn-sm btn-danger hidden"><svg class="i i-sm" aria-hidden="true"><use href="assets/icons.svg#i-trash"/></svg>Eliminar</button>
         </div>
         <button type="button" id="btn-close-account" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button>
       </div>
@@ -884,7 +886,7 @@
         </div>
 
         <form id="payment-form" class="payment-form">
-          <h4 class="mini-title">Registrar abono</h4>
+          <h4 aria-level="3" class="mini-title">Registrar abono</h4>
           <div class="form-grid">
             <div class="field"><label for="payment-credit-select">Crédito pendiente</label><select id="payment-credit-select" required></select></div>
             <div class="field"><label for="payment-amount">Monto a abonar</label><input type="number" step="0.01" id="payment-amount" placeholder="0.00" required inputmode="decimal"></div>
@@ -898,8 +900,8 @@
   <!-- Crear o cambiar contraseña -->
   <div id="modal-password" class="modal-root hidden">
     <div class="modal-scrim" data-close-modal></div>
-    <div class="modal-card narrow">
-      <div class="modal-head"><div><h3>Crear o cambiar contraseña</h3></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
+    <div class="modal-card narrow" role="dialog" aria-modal="true" aria-labelledby="modal-password-title">
+      <div class="modal-head"><div><h3 id="modal-password-title" aria-level="2">Crear o cambiar contraseña</h3></div><button type="button" class="btn btn-ghost btn-icon btn-sm" data-close-modal aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button></div>
       <div class="modal-body"><p class="hint" style="font-size:14px">Te enviaremos un enlace a tu correo para crear o cambiar tu contraseña. Sirve también si entraste con Google y quieres poder entrar con tu correo.</p></div>
       <div class="modal-foot"><button type="button" id="btn-close-password" class="btn">Cancelar</button><button type="button" id="btn-save-password" class="btn btn-primary">Enviar enlace por correo</button></div>
     </div>
@@ -908,8 +910,8 @@
   <!-- Contraseña obligatoria al crear un negocio de grupo (no se puede cerrar sin elegir) -->
   <div id="modal-forced-password" class="modal-root hidden">
     <div class="modal-scrim"></div>
-    <div class="modal-card narrow">
-      <div class="modal-head"><div><h3>Crea tu contraseña</h3></div></div>
+    <div class="modal-card narrow" role="dialog" aria-modal="true" aria-labelledby="modal-forced-password-title">
+      <div class="modal-head"><div><h3 id="modal-forced-password-title" aria-level="2">Crea tu contraseña</h3></div></div>
       <div class="modal-body"><p class="hint" style="font-size:14px">Has creado un negocio de tipo «Grupo / Equipo». Para la seguridad de tu negocio y la gestión de empleados, debes tener una contraseña. Te enviaremos un enlace a tu correo para crearla.</p></div>
       <div class="modal-foot"><button type="button" id="btn-save-forced-password" class="btn btn-primary">Enviar enlace y entrar</button></div>
     </div>
@@ -918,8 +920,8 @@
   <!-- Pantalla a la que lleva el enlace del correo: elegir la contraseña nueva. -->
   <div id="modal-reset-password" class="modal-root hidden">
     <div class="modal-scrim"></div>
-    <div class="modal-card narrow">
-      <div class="modal-head"><div><h3>Nueva contraseña</h3><p>La usarás para entrar con tu correo.</p></div></div>
+    <div class="modal-card narrow" role="dialog" aria-modal="true" aria-labelledby="modal-reset-password-title">
+      <div class="modal-head"><div><h3 id="modal-reset-password-title" aria-level="2">Nueva contraseña</h3><p>La usarás para entrar con tu correo.</p></div></div>
       <div class="modal-body"><div class="field" style="margin-bottom:0"><label for="input-reset-password">Nueva contraseña</label><input type="password" id="input-reset-password" placeholder="Mínimo 8 caracteres" autocomplete="new-password"></div></div>
       <div class="modal-foot"><button type="button" id="btn-cancel-reset-password" class="btn">Cancelar</button><button type="button" id="btn-save-reset-password" class="btn btn-primary">Guardar contraseña</button></div>
     </div>
@@ -929,9 +931,9 @@
        (es un documento, no interfaz) para que la imagen y el PDF salgan iguales en cualquier tema. -->
   <div id="modal-invoice" class="modal-root hidden">
     <div class="modal-scrim" data-close-modal></div>
-    <div class="modal-card wide">
+    <div class="modal-card wide" role="dialog" aria-modal="true" aria-labelledby="modal-invoice-title">
       <div class="modal-head">
-        <div><h3>Factura</h3><p>Puedes editar cualquier campo (cliente, líneas, notas) antes de descargar.</p></div>
+        <div><h3 id="modal-invoice-title" aria-level="2">Factura</h3><p>Puedes editar cualquier campo (cliente, líneas, notas) antes de descargar.</p></div>
         <button type="button" id="btn-close-invoice" class="btn btn-ghost btn-icon btn-sm" aria-label="Cerrar"><svg class="i" aria-hidden="true"><use href="assets/icons.svg#i-x"/></svg></button>
       </div>
       <div class="modal-body invoice-body">
@@ -953,13 +955,13 @@
           </div>
 
           <div class="invoice-billto">
-            <h4>Facturar a</h4>
+            <h4 aria-level="3">Facturar a</h4>
             <p id="inv-customer-name" class="invoice-editable" contenteditable="true">Cliente General</p>
             <p id="inv-customer-phone" class="invoice-editable" contenteditable="true"></p>
           </div>
 
           <table>
-            <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio unit.</th><th class="num">Importe</th><th></th></tr></thead>
+            <thead><tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Precio unit.</th><th class="num">Importe</th><th><span class="sr-only">Acciones</span></th></tr></thead>
             <tbody id="inv-items-body"></tbody>
           </table>
           <button type="button" id="btn-invoice-add-row">+ Agregar línea</button>
