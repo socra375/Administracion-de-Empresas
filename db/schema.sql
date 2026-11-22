@@ -264,25 +264,62 @@ create policy invites_admin on public.employee_invites for all to authenticated
   using ((select private.is_business_admin(business_id)))
   with check ((select private.is_business_admin(business_id)));
 
--- Datos de trabajo: cualquier miembro del negocio.
-create policy products_member on public.products for all to authenticated
+-- Datos de trabajo: cualquier miembro del negocio los lee, crea y corrige; BORRARLOS es solo del
+-- administrador (un empleado no debe poder borrar clientes, productos, facturas ni ventas).
+create policy products_select on public.products for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy products_insert on public.products for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy products_update on public.products for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
-create policy customers_member on public.customers for all to authenticated
+create policy products_delete on public.products for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
+create policy customers_select on public.customers for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy customers_insert on public.customers for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy customers_update on public.customers for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
-create policy sales_member on public.sales for all to authenticated
+create policy customers_delete on public.customers for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
+create policy sales_select on public.sales for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy sales_insert on public.sales for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy sales_update on public.sales for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
-create policy credits_member on public.customer_credits for all to authenticated
+create policy sales_delete on public.sales for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
+create policy credits_select on public.customer_credits for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy credits_insert on public.customer_credits for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy credits_update on public.customer_credits for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
-create policy invoices_member on public.invoices for all to authenticated
+create policy credits_delete on public.customer_credits for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
+create policy invoices_select on public.invoices for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy invoices_insert on public.invoices for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy invoices_update on public.invoices for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
-create policy movements_member on public.inventory_movements for all to authenticated
+create policy invoices_delete on public.invoices for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
+create policy movements_select on public.inventory_movements for select to authenticated
+  using ((select private.has_business_access(business_id)));
+create policy movements_insert on public.inventory_movements for insert to authenticated
+  with check ((select private.has_business_access(business_id)));
+create policy movements_update on public.inventory_movements for update to authenticated
   using ((select private.has_business_access(business_id)))
   with check ((select private.has_business_access(business_id)));
+create policy movements_delete on public.inventory_movements for delete to authenticated
+  using ((select private.is_business_admin(business_id)));
 
 -- Registro de actividad: los miembros lo leen y añaden; corregirlo o borrarlo es del admin.
 create policy activity_select on public.activity_log for select to authenticated
@@ -538,7 +575,27 @@ create or replace function public.report_diag(p jsonb) returns void language plp
 begin
   if p is null or length(p::text) > 4000 then return; end if;
   if (select count(*) from private.diag_log where at > now() - interval '1 minute') > 60 then return; end if;
+  if random() < 0.02 then delete from private.diag_log where at < now() - interval '30 days'; end if;
   insert into private.diag_log(data) values (jsonb_build_object('client', p, 'auth_uid', auth.uid(), 'jwt_sub', auth.jwt()->>'sub', 'jwt_role', auth.jwt()->>'role', 'jwt_iat', auth.jwt()->>'iat', 'jwt_exp', auth.jwt()->>'exp', 'now', extract(epoch from now())::bigint, 'session_user', session_user));
 end $$;
 revoke all on function public.report_diag(jsonb) from public;
 grant execute on function public.report_diag(jsonb) to authenticated, anonymous;
+
+-- ---------------------------------------------------------------------------------------
+-- Índices de claves foráneas e integridad de datos (2026-11-22)
+-- ---------------------------------------------------------------------------------------
+create index if not exists customer_credits_sale_id_idx on public.customer_credits(sale_id);
+create index if not exists inventory_movements_product_id_idx on public.inventory_movements(product_id);
+create index if not exists invoices_sale_id_idx on public.invoices(sale_id);
+create index if not exists invoices_customer_id_idx on public.invoices(customer_id);
+
+alter table public.products drop constraint if exists products_values_check;
+alter table public.products add constraint products_values_check check (purchase_price >= 0 and sale_price >= 0 and stock >= 0 and min_stock >= 0);
+alter table public.customers drop constraint if exists customers_name_check;
+alter table public.customers add constraint customers_name_check check (length(btrim(name)) between 1 and 150 and (phone is null or length(phone) <= 40));
+alter table public.customer_credits drop constraint if exists credits_amounts_check;
+alter table public.customer_credits add constraint credits_amounts_check check (amount >= 0 and amount_paid >= 0 and amount_paid <= amount);
+alter table public.sales drop constraint if exists sales_total_check;
+alter table public.sales add constraint sales_total_check check (total >= 0);
+alter table public.invoices drop constraint if exists invoices_total_check;
+alter table public.invoices add constraint invoices_total_check check (total >= 0 and subtotal >= 0);

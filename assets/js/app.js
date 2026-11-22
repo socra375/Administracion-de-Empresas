@@ -75,6 +75,49 @@ try {
 const NEON_URL = "https://ep-old-credit-bc1j2pi5.c-16.us-east-1.aws.neon.tech/neondb";
 const realNeon = window.NeonSupabase.createClient(NEON_URL);
 
+// ---- Guarda de identidad para la API de datos ----
+// La base trata como «anónima» cualquier petición cuya cabecera Authorization no sea un JWT válido
+// y vigente. El cliente arma esa cabecera con session.token y, justo después de iniciar sesión, a
+// veces todavía es el token de sesión opaco (la respuesta de sesión aún no trajo el JWT firmado): la
+// primera petición llega sin identidad, las reglas de seguridad la rechazan («row-level security»)
+// y la siguiente funciona. Antes de enviar cada petición a la API de datos se comprueba que lleve un
+// JWT vigente; si no, se espera a la sesión real (hasta ~2 s) y se sustituye. Sin sesión no espera.
+const DATA_API_PATH = '/rest/v1/';
+const jwtClaimsOf = (t) => {
+  try {
+    if (typeof t !== 'string' || t.split('.').length !== 3) return null;
+    return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+  } catch (e) { return null; }
+};
+const jwtUsable = (t) => { const c = jwtClaimsOf(t); return !!(c && c.role && c.exp && c.exp * 1000 > Date.now() + 10000); };
+window.__dataAuth = { ok: 0, replaced: 0, unfixed: 0, nosession: 0 };
+if (new URLSearchParams(window.location.search).get('demo') !== '1') {
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async function guardedFetch(input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || String(input || '');
+    if (!url.includes(DATA_API_PATH)) return nativeFetch(input, init);
+    try {
+      const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
+      const current = (headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
+      if (jwtUsable(current)) { window.__dataAuth.ok++; return nativeFetch(input, init); }
+      let fixed = null, hadSession = false;
+      for (let i = 0; i < 5 && !fixed; i++) {
+        const { data } = await realNeon.auth.getSession();
+        if (!data?.session) break;
+        hadSession = true;
+        if (jwtUsable(data.session.access_token)) fixed = data.session.access_token;
+        else await new Promise((r) => setTimeout(r, 150 * (i + 1)));
+      }
+      if (!fixed) { window.__dataAuth[hadSession ? 'unfixed' : 'nosession']++; return nativeFetch(input, init); }
+      headers.set('Authorization', 'Bearer ' + fixed);
+      window.__dataAuth.replaced++;
+      return nativeFetch(input instanceof Request ? new Request(input, { headers }) : input, { ...(init || {}), headers });
+    } catch (e) {
+      return nativeFetch(input, init);   // la guarda nunca debe impedir la petición
+    }
+  };
+}
+
 // ---- Modo demostración (?demo=1) ----
 // En la demostración TODAS las lecturas y escrituras de datos van a una base en memoria
 // (assets/js/demo.js): nunca llegan a Neon. La demo vive en su propia carga de página, así que
@@ -625,19 +668,40 @@ $('login-form').addEventListener('submit', async (e) => {
 });
 
 
-// Pregunta a la base quién cree que es la persona de esta sesión (función public.whoami).
-// Si no coincide con el usuario de la sesión, las reglas de seguridad rechazarán todo; así el
-// motivo se ve en pantalla en lugar de un "violates row-level security" sin explicación.
+// Pregunta a la base quién cree que es la persona de esta sesión (función public.whoami) y espera,
+// con unos pocos reintentos, a que la reconozca. Se hace ANTES de leer ningún dato: una petición sin
+// identidad no da error, devuelve «nada», y la app tomaría a un empleado por administrador de un
+// negocio vacío. Devuelve true cuando la base ve la misma identidad que la sesión.
 async function checkDatabaseIdentity(userId) {
-  try {
-    const { data, error } = await neon.rpc('whoami');
-    console.info('whoami:', data, error);
-    reportDiag('login_whoami', { whoami: data || null, whoamiError: error?.message || null });
-    if (error) return;
-    if (!data?.auth_uid || data.auth_uid !== userId) {
-      toast.err(`La base de datos no reconoce tu sesión (te ve como ${data?.auth_uid || 'nadie'}). Cierra sesión y vuelve a entrar; si sigue igual, avísanos.`);
-    }
-  } catch (e) { console.error('whoami:', e); }
+  let seen = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const { data, error } = await neon.rpc('whoami');
+      seen = data?.auth_uid || null;
+      console.info('whoami:', data, error);
+      if (attempt === 0 || !(!error && seen === userId)) {
+        reportDiag(attempt === 0 ? 'login_whoami' : 'login_whoami_retry', { attempt, whoami: data || null, whoamiError: error?.message || null });
+      }
+      if (!error && seen === userId) return true;
+    } catch (e) { console.error('whoami:', e); }
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
+  }
+  toast.err(`La base de datos no reconoce tu sesión (te ve como ${seen || 'nadie'}). Cierra sesión y vuelve a entrar; si sigue igual, avísanos.`);
+  return false;
+}
+
+// Lectura de datos: si falla, se avisa (una vez cada 15 s) en lugar de dejar la lista vacía sin
+// explicación. Devuelve los datos, o null si hubo error (así no se pisa lo que ya se había cargado).
+let lastLoadFailToast = 0;
+function okData(res, label) {
+  if (!res?.error) return res?.data ?? null;
+  console.error(`Carga de ${label}:`, res.error);
+  if (Date.now() - lastLoadFailToast > 15000) {
+    lastLoadFailToast = Date.now();
+    toast.err(`No se pudieron cargar ${label}: ${res.error.message || res.error}. Recarga la página; si sigue igual, vuelve a entrar.`);
+  }
+  reportDiag('load_failed', { label, message: res.error.message || String(res.error) });
+  return null;
 }
 
 // ---------- Diagnóstico y reintento ante rechazos de las reglas de seguridad ----------
@@ -661,7 +725,7 @@ async function reportDiag(event, extra = {}) {
       event, userId: session?.user?.id || null, businessId: currentBusinessId,
       claims: session?.access_token ? decodeJwtClaims(session.access_token) : null,
       clientNow: Math.floor(Date.now() / 1000), page: window.location.hostname,
-      ua: navigator.userAgent.slice(0, 120), ...extra
+      ua: navigator.userAgent.slice(0, 120), dataAuth: window.__dataAuth, ...extra
     } });
   } catch (e) { /* el diagnóstico nunca debe romper la acción */ }
 }
@@ -684,6 +748,9 @@ neon.auth.onAuthStateChange(async (event, session) => {
     // la primera vez que se montan los módulos.
     try { localStorage.setItem(VISITED_KEY, '1'); } catch (e) { /* ignorar */ }
     if (modulesInitialized) return;
+
+    // Primero: que la base reconozca esta sesión (si no, cualquier lectura devolvería «nada»).
+    if (!(await checkDatabaseIdentity(userId))) return;
 
     // Canjear código de invitación pendiente. Se busca primero en localStorage (guardado
     // justo antes de salir hacia Google/el correo de confirmación) porque es más
@@ -737,10 +804,13 @@ neon.auth.onAuthStateChange(async (event, session) => {
       }
     }
 
-    await checkDatabaseIdentity(userId);
-
     // Cargar Ajustes y Datos de Negocio
-    let { data: bData } = await neon.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
+    let { data: bData, error: bLoadErr } = await neon.from('businesses').select('*').eq('id', currentBusinessId).maybeSingle();
+    if (bLoadErr) {
+      console.error('No se pudo leer el negocio:', bLoadErr);
+      toast.err('No se pudo cargar tu negocio: ' + bLoadErr.message + '. Recarga la página; si sigue igual, vuelve a entrar.');
+      return;
+    }
 
     if (!bData && currentUserRole === 'admin') {
       const { data: newB, error: newBErr } = await neon.from('businesses').insert([{ id: currentBusinessId, name: 'Mi Negocio', onboarding_completed: false }]).select().single();
@@ -898,7 +968,7 @@ function creditState(cr) {
 }
 
 async function loadCustomers() {
-  const { data } = await neon.from('customers').select('*').eq('business_id', currentBusinessId);
+  const data = okData(await neon.from('customers').select('*').eq('business_id', currentBusinessId), 'los clientes');
   if (data) {
     customersSnapshot = data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
     loaded.customers = true;
@@ -907,31 +977,108 @@ async function loadCustomers() {
   }
 }
 
+// ---------- Clientes: validación, edición y eliminación ----------
+let editingCustomerId = null;     // null = el formulario crea; con id = edita ese cliente
+let openAccountCustomerId = null; // cliente cuyo perfil está abierto
+const normName = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+const phoneDigits = (s) => String(s || '').replace(/\D/g, '');
+
+// Devuelve el motivo por el que no se puede guardar, o null si todo está bien.
+function validateCustomer(name, phone, ignoreId) {
+  if (name.length < 2) return 'Escribe el nombre del cliente (mínimo 2 letras).';
+  if (name.length > 150) return 'El nombre es demasiado largo (máximo 150 caracteres).';
+  if (phone && !/^[0-9+()\-.\s]{7,25}$/.test(phone)) return 'El teléfono solo puede llevar números, espacios y + ( ) - . (de 7 a 25 caracteres).';
+  const dup = customersSnapshot.find((c) => c.id !== ignoreId && normName(c.name) === normName(name) && phoneDigits(c.phone) === phoneDigits(phone));
+  if (dup) return 'Ya tienes un cliente con ese nombre y ese teléfono.';
+  return null;
+}
+
+// Mensaje de la base en palabras de la persona (restricciones y permisos).
+function friendlyDbError(err) {
+  const m = err?.message || String(err || '');
+  if (/customers_name_check/.test(m)) return 'revisa el nombre (1 a 150 caracteres) y el teléfono (hasta 40).';
+  if (/foreign key|violates foreign key/i.test(m)) return 'tiene registros asociados (créditos o facturas).';
+  if (/row-level security/i.test(m)) return 'tu usuario no tiene permiso para esta acción (' + m + ').';
+  return m;
+}
+
+let returnToProfileId = null;      // al terminar de editar, se vuelve al perfil de este cliente
+function openCustomerForm(customerId) {
+  editingCustomerId = customerId;
+  // El perfil y el formulario comparten capa y el perfil va después: se cierra el perfil para que el
+  // formulario quede delante, y se vuelve a abrir al terminar (guardando o cancelando).
+  returnToProfileId = (customerId && !$('modal-customer-account').classList.contains('hidden')) ? customerId : null;
+  if (returnToProfileId) closeModal('modal-customer-account');
+  const c = customerId ? customersSnapshot.find((x) => x.id === customerId) : null;
+  $('customer-form').reset();
+  $('customer-form-title').textContent = c ? 'Editar cliente' : 'Nuevo cliente';
+  $('customer-form-sub').textContent = c ? 'Corrige el nombre o el teléfono. Sus créditos y facturas no cambian.' : 'Podrás venderle a crédito y llevar su cuenta.';
+  $('customer-form-submit').textContent = c ? 'Guardar cambios' : 'Guardar cliente';
+  if (c) { $('cust-name').value = c.name || ''; $('cust-phone').value = c.phone || ''; }
+  openModal('modal-customer-new');
+}
+
+async function deleteCurrentCustomer() {
+  const id = openAccountCustomerId;
+  const c = customersSnapshot.find((x) => x.id === id);
+  if (!c || !isAdmin()) return;
+  if (!loaded.invoices) await loadInvoicesList();
+  const hasCredits = creditsSnapshot.some((cr) => cr.customer_id === id);
+  const hasInvoices = invoicesSnapshot.some((inv) => inv.customer_id === id);
+  if (hasCredits || hasInvoices) {
+    toast.warn('No se puede eliminar: tiene ' + (hasCredits ? 'créditos' : 'facturas') + ' registrados. Su historial debe conservarse.');
+    return;
+  }
+  const ok = await confirmDialog({ title: '¿Eliminar a ' + c.name + '?', message: 'Se borra solo este cliente (no tiene créditos ni facturas). No se puede deshacer.', confirmLabel: 'Eliminar', danger: true });
+  if (!ok) return;
+  const { error } = await neon.from('customers').delete().eq('id', id);
+  if (error) return toast.err('No se pudo eliminar: ' + friendlyDbError(error));
+  await logActivity('Eliminó un cliente', { entityType: 'customer', entityId: id, oldValues: { name: c.name } });
+  closeModal('modal-customer-account');
+  toast.ok('Cliente «' + c.name + '» eliminado.');
+  await loadCustomers();
+}
+
 async function initCustomersAndCredits() {
   $('customers-table-body').innerHTML = skeletonRows(5);
   $('receivables-table-body').innerHTML = skeletonRows(8);
   await loadCustomers();
 
-  $('btn-show-add-customer').onclick = () => { $('customer-form').reset(); openModal('modal-customer-new'); };
+  // Formulario de cliente: sirve para crear y para editar (editingCustomerId).
+  $('btn-show-add-customer').onclick = () => openCustomerForm(null);
   $('customer-search').addEventListener('input', renderCustomersTable);
 
   $('customer-form').onsubmit = async (e) => {
     e.preventDefault();
     const submit = e.currentTarget.querySelector('button[type=submit]');
+    const name = $('cust-name').value.replace(/\s+/g, ' ').trim();
+    const phone = $('cust-phone').value.trim();
+    const problem = validateCustomer(name, phone, editingCustomerId);
+    if (problem) { toast.err(problem); return; }
     await withBusy(submit, 'Guardando…', async () => {
-      const name = $('cust-name').value.trim();
-      const { error } = await writeWithRetry('customers.insert', () => neon.from('customers').insert([{
-        business_id: currentBusinessId,
-        name,
-        phone: $('cust-phone').value
-      }]));
-      if (error) return toast.err("No se pudo guardar el cliente: " + error.message);
+      const editing = editingCustomerId;
+      const { error } = await writeWithRetry(editing ? 'customers.update' : 'customers.insert', () => editing
+        ? neon.from('customers').update({ name, phone: phone || null }).eq('id', editing)
+        : neon.from('customers').insert([{ business_id: currentBusinessId, name, phone: phone || null }]));
+      if (error) return toast.err((editing ? "No se pudo guardar el cambio: " : "No se pudo guardar el cliente: ") + friendlyDbError(error));
       $('customer-form').reset();
       closeModal('modal-customer-new');
-      toast.ok(`Cliente «${name}» guardado.`);
+      toast.ok(editing ? `Cliente «${name}» actualizado.` : `Cliente «${name}» guardado.`);
+      if (editing) await logActivity('Editó un cliente', { entityType: 'customer', entityId: editing });
+      editingCustomerId = null;
       await loadCustomers();
+      if (editing && !$('modal-customer-account').classList.contains('hidden')) openCustomerAccountModal(editing);   // refresca el nombre
     });
   };
+
+  $('btn-edit-customer').onclick = () => { if (openAccountCustomerId) openCustomerForm(openAccountCustomerId); };
+  new MutationObserver(() => {
+    if ($('modal-customer-new').classList.contains('hidden') && returnToProfileId) {
+      const id = returnToProfileId; returnToProfileId = null; editingCustomerId = null;
+      openCustomerAccountModal(id);
+    }
+  }).observe($('modal-customer-new'), { attributes: true, attributeFilter: ['class'] });
+  $('btn-delete-customer').onclick = deleteCurrentCustomer;
 
   // Filtros de Cuentas por cobrar
   document.querySelectorAll('#rec-filter button').forEach(btn => {
@@ -954,7 +1101,7 @@ async function initCustomersAndCredits() {
 }
 
 async function loadCredits() {
-  const { data } = await neon.from('customer_credits').select('*').eq('business_id', currentBusinessId);
+  const data = okData(await neon.from('customer_credits').select('*').eq('business_id', currentBusinessId), 'las cuentas por cobrar');
   if (data) {
     creditsSnapshot = data;
     loaded.credits = true;
@@ -1085,6 +1232,8 @@ function renderReceivables() {
 function openCustomerAccountModal(customerId, preselectCreditId = null) {
   const customer = customersSnapshot.find(c => c.id === customerId);
   if (!customer) return;
+  openAccountCustomerId = customerId;
+  $('btn-delete-customer').classList.toggle('hidden', !isAdmin());
 
   $('account-avatar').textContent = initials(customer.name);
   $('account-customer-name').textContent = customer.name;
@@ -1262,7 +1411,7 @@ function setPaymentMethod(value) {
 
 // Recarga el inventario (también lo usa el POS tras vender, para no ofrecer stock que ya no existe)
 async function loadProducts() {
-  const { data } = await neon.from('products').select('*').eq('business_id', currentBusinessId);
+  const data = okData(await neon.from('products').select('*').eq('business_id', currentBusinessId), 'los productos');
   if (data) {
     inventorySnapshot = data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
     loaded.products = true;
@@ -1550,7 +1699,7 @@ function initEmployeeManagement() {
 // Invitaciones emitidas y su estado (solo las ve el admin; la regla de la base lo exige)
 async function loadInvites() {
   if (!isAdmin()) return;
-  const { data } = await neon.from('employee_invites').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(8);
+  const data = okData(await neon.from('employee_invites').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(8), 'las invitaciones');
   const box = $('invites-list');
   const list = (data || []).slice(0, 8);
   box.innerHTML = list.length ? list.map(inv => {
@@ -1561,10 +1710,10 @@ async function loadInvites() {
 }
 
 async function loadEmployeesList() {
-  const { data } = await neon.from('business_members')
+  const data = okData(await neon.from('business_members')
     .select('*')
     .eq('business_id', currentBusinessId)
-    .eq('role', 'employee');
+    .eq('role', 'employee'), 'el equipo');
 
   if (data) {
     employeesSnapshot = data;
@@ -2028,7 +2177,7 @@ function describeChanges(oldValues, newValues) {
 async function loadActivityLog() {
   const tbody = $('activity-log-table-body');
   tbody.innerHTML = skeletonRows(3);
-  const { data } = await neon.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30);
+  const data = okData(await neon.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30), 'el registro de actividad');
   tbody.innerHTML = '';
   if (data && data.length) {
     data.forEach(log => {
@@ -2255,8 +2404,8 @@ async function createInvoiceForSale(sale, customerId) {
 }
 
 async function loadInvoicesList() {
-  const { data } = await neon.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
-  invoicesSnapshot = data || [];
+  const data = okData(await neon.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }), 'las facturas');
+  if (data) invoicesSnapshot = data;
   loaded.invoices = true;
   try { renderTopProducts(filterInvoicesByPeriod(invoicesSnapshot, activePeriod)); } catch (e) { console.error('renderTopProducts:', e); }
   renderReports();
@@ -2464,8 +2613,31 @@ function openInvoiceModal(invoice) {
 $('btn-close-invoice').onclick = () => closeModal('modal-invoice');
 $('btn-invoice-add-row').onclick = () => addInvoiceItemRow({ name: '', qty: 1, price: 0 });
 
+// Las librerías de exportación (≈560 KB) se cargan solo la primera vez que se exporta una factura,
+// con versión exacta y huella de integridad (SRI): ya no pesan en cada visita ni dependen de «lo último».
+const EXPORT_LIBS = {
+  html2canvas: { src: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', integrity: 'sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H', ready: () => typeof window.html2canvas === 'function' },
+  jspdf: { src: 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', integrity: 'sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk', ready: () => !!window.jspdf?.jsPDF }
+};
+const libLoads = {};
+function loadExportLib(name) {
+  const lib = EXPORT_LIBS[name];
+  if (lib.ready()) return Promise.resolve();
+  if (!libLoads[name]) {
+    libLoads[name] = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = lib.src; s.integrity = lib.integrity; s.crossOrigin = 'anonymous'; s.referrerPolicy = 'no-referrer';
+      s.onload = () => (lib.ready() ? resolve() : reject(new Error(name + ' no quedó disponible')));
+      s.onerror = () => { delete libLoads[name]; reject(new Error('No se pudo descargar ' + name)); };
+      document.head.appendChild(s);
+    });
+  }
+  return libLoads[name];
+}
+
 async function renderInvoiceCanvas() {
-  if (typeof window.html2canvas !== 'function') { toast.err("No se pudo cargar el generador de imágenes. Revisa tu conexión."); return null; }
+  try { await loadExportLib('html2canvas'); }
+  catch (e) { console.error('html2canvas:', e); toast.err("No se pudo cargar el generador de imágenes. Revisa tu conexión e inténtalo de nuevo."); return null; }
   return window.html2canvas($('invoice-paper'), { scale: 2, backgroundColor: '#ffffff', useCORS: true });
 }
 
@@ -2484,6 +2656,8 @@ $('btn-download-invoice-pdf').onclick = async (e) => {
   await withBusy(e.currentTarget, 'Generando…', async () => {
     const canvas = await renderInvoiceCanvas();
     if (!canvas) return;
+    try { await loadExportLib('jspdf'); }
+    catch (e) { console.error('jspdf:', e); return toast.err("No se pudo cargar el generador de PDF. Revisa tu conexión e inténtalo de nuevo."); }
     const { jsPDF } = window.jspdf;
     const pdf = new jsPDF({ unit: 'px', format: [canvas.width, canvas.height] });
     pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, canvas.width, canvas.height);
@@ -2547,8 +2721,8 @@ async function initInventory() {
     const tbody = $('inventory-history-table-body');
     tbody.innerHTML = skeletonRows(6);
     openModal('modal-inventory-history');
-    const { data } = await neon.from('inventory_movements').select('*')
-      .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100);
+    const data = okData(await neon.from('inventory_movements').select('*')
+      .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100), 'los movimientos de inventario');
     const typeBadge = {
       entrada: '<span class="badge badge-ok">Entrada</span>',
       salida: '<span class="badge badge-danger">Salida</span>',
@@ -2683,7 +2857,7 @@ function renderInventory() {
 }
 
 async function loadSales() {
-  const { data } = await neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false });
+  const data = okData(await neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }), 'las ventas');
   if (data) {
     salesHistory = data;
     calculateFinancialDashboard();

@@ -275,6 +275,7 @@ body:not(.has-custom-bg) .topbar { background: var(--bg); }
 
 /* ---------- Ventanas con contenido propio ---------- */
 .profile-head { display: flex; align-items: center; gap: 14px; }
+.profile-actions { display: flex; gap: 8px; margin: 0 8px 0 auto; flex-wrap: wrap; justify-content: flex-end; }
 .modal-body.flush { padding: 0; }
 .payment-form { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--border); }
 .payment-form .mini-title { margin-top: 0; }

@@ -15,7 +15,7 @@
 <meta name="page-type" content="software">
 <meta property="og:title" content="AINova Management">
 <meta property="og:description" content="Ventas, inventario y cuentas por cobrar en un solo lugar.">
-<meta property="og:image" content="https://socra375.github.io/Administracion-de-Empresas/logo-512.png">
+<meta property="og:image" content="https://ainova-management.vercel.app/logo-512.png">
 <meta name="twitter:card" content="summary">
 <meta name="theme-color" content="#F7F5F0">
 <meta name="color-scheme" content="light">
@@ -56,6 +56,7 @@
   if (logged) window.location.replace(APP);
 })();
 </script>
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="256x256" href="logo.png">
 <link rel="icon" type="image/png" sizes="512x512" href="logo-512.png">
 <link rel="apple-touch-icon" href="logo-512.png">
@@ -174,6 +175,7 @@
   @media (min-width: 1024px) and (max-width: 1279px) { .frame--split.frame--lit { aspect-ratio: 4 / 5; } }
   .nav__logo img { display: block; height: 36px; width: auto; }
   .nav__link { white-space: nowrap; }
+  .inbox .q, .inbox .t time, .inbox .t span { color: #a9b0b6; }
   @media (min-width: 640px) and (max-width: 1439px) { .nav__actions > .nav__link { display: none; } }
 </style>
 </head>
@@ -209,11 +211,11 @@
         <p class="hero__lead">Cobra en el punto de venta, descuenta el stock al instante y lleva las cuentas de cada cliente. Seis módulos conectados, en el celular o la computadora.</p>
         <div class="btn-row"><a class="btn btn--primary" href="app.html">Entrar a la app</a><a class="btn btn--secondary" href="app.html?demo=1">Ver la demostración</a></div>
       </div>
-      <div class="hero__window" role="img" aria-label="Punto de venta de AINova registrando una venta de dos cafés y una leche en efectivo">
-        <div class="ly-piece d-win d-win--dark" aria-hidden="true">
-          <div class="d-win__bar"><span class="d-win__dots"><i></i><i></i><i></i></span><span><b>Venta 1042</b> · Punto de venta</span><span class="sp"></span><span>Efectivo · RD$</span></div>
+      <div class="hero__window" role="group" aria-label="Punto de venta de AINova registrando una venta de dos cafés y una leche en efectivo">
+        <div class="ly-piece d-win d-win--dark">
+          <div class="d-win__bar" aria-hidden="true"><span class="d-win__dots"><i></i><i></i><i></i></span><span><b>Venta 1042</b> · Punto de venta</span><span class="sp"></span><span>Efectivo · RD$</span></div>
           <div class="d-win__body">
-            <div class="inbox">
+            <div class="inbox" aria-hidden="true">
               <div class="q">Buscar producto</div>
               <div class="t is-on"><i style="background:#f3c98b">CM</i><b>Café molido 250 g</b><time>RD$195</time><span>2 en la venta · stock 15</span></div>
               <div class="t"><i style="background:#9fd3b5">AR</i><b>Arroz selecto 5 lb</b><time>RD$215</time><span>Stock 22</span></div>
@@ -222,7 +224,7 @@
               <div class="t"><i style="background:#d8d2a6">DL</i><b>Detergente líquido 1 L</b><time>RD$140</time><span>Stock bajo: quedan 5</span></div>
             </div>
             <div class="convo">
-              <div class="d-chat" data-ly-steps="900">
+              <div class="d-chat" data-ly-steps="900" aria-hidden="true">
                 <div class="d-msg d-msg--me">2 × Café molido 250 g y 1 × Leche entera 1 L<small>10:42</small></div>
                 <div class="d-tool" data-step>Calculando el total y descontando el stock</div>
                 <div class="d-msg d-msg--bot" data-step>Venta registrada: RD$475.00 en efectivo. Café molido 15 → 13 y leche entera 30 → 29.<small>FAC-0021 · lista para descargar</small></div>
@@ -289,7 +291,7 @@
               <div class="ui-doc__text">Saldo pendiente: RD$500.00. Se puede cobrar en efectivo, tarjeta o transferencia.</div>
               <div class="ui-doc__text">Al saldar la cuenta el crédito pasa a Al día y la factura queda lista para descargar en imagen o PDF.</div>
             </article>
-            <aside class="ui-doc__note ui-panel is-on" aria-live="polite">
+            <aside class="ui-doc__note ui-panel is-on" role="note" aria-live="polite">
               <div class="ui-doc__kind"><span class="ui-doc__dot"></span><span data-doc-kind>Vencido</span></div>
               <div class="ui-doc__msg" data-doc-msg>Venció el 18 de noviembre. Saldo de RD$500.00.</div>
               <div class="ui-doc__where" data-doc-where>Cuentas por cobrar</div>
@@ -484,8 +486,8 @@
           <a class="nav__logo" href="#top" aria-label="AINova Management, inicio"><img src="assets/logo-horizontal.png" alt="AINova Management" width="87" height="36"></a>
           <p class="footer__lede">Ventas, inventario y cuentas por cobrar para pequeños negocios.</p>
         </div>
-        <div class="span-2 footer__col"><h4>Producto</h4><ul><li><a href="#cuentas">Cuentas por cobrar</a></li><li><a href="#funciones">Funciones</a></li><li><a href="#equipo">Equipo</a></li></ul></div>
-        <div class="span-2 footer__col"><h4>Ayuda</h4><ul><li><a href="#preguntas">Preguntas</a></li><li><a href="app.html?demo=1">Ver la demostración</a></li><li><a href="app.html">Entrar a la app</a></li></ul></div>
+        <div class="span-2 footer__col"><h4 aria-level="3">Producto</h4><ul><li><a href="#cuentas">Cuentas por cobrar</a></li><li><a href="#funciones">Funciones</a></li><li><a href="#equipo">Equipo</a></li></ul></div>
+        <div class="span-2 footer__col"><h4 aria-level="3">Ayuda</h4><ul><li><a href="#preguntas">Preguntas</a></li><li><a href="app.html?demo=1">Ver la demostración</a></li><li><a href="app.html">Entrar a la app</a></li></ul></div>
         </div>
       </div>
       <div class="footer__legal">
