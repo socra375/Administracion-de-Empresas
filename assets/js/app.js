@@ -73,15 +73,18 @@ try {
 // de autenticación y la de la API de datos. No hay claves en el navegador: la seguridad
 // la ponen las reglas de la base (RLS, ver db/schema.sql) y el token de cada usuario.
 const NEON_URL = "https://ep-old-credit-bc1j2pi5.c-16.us-east-1.aws.neon.tech/neondb";
-const realNeon = window.NeonSupabase.createClient(NEON_URL);
-
 // ---- Guarda de identidad para la API de datos ----
-// La base trata como «anónima» cualquier petición cuya cabecera Authorization no sea un JWT válido
-// y vigente. El cliente arma esa cabecera con session.token y, justo después de iniciar sesión, a
-// veces todavía es el token de sesión opaco (la respuesta de sesión aún no trajo el JWT firmado): la
-// primera petición llega sin identidad, las reglas de seguridad la rechazan («row-level security»)
-// y la siguiente funciona. Antes de enviar cada petición a la API de datos se comprueba que lleve un
-// JWT vigente; si no, se espera a la sesión real (hasta ~2 s) y se sustituye. Sin sesión no espera.
+// La base trata como «anónima» cualquier petición cuya cabecera Authorization no sea un JWT válido y
+// vigente. El cliente arma esa cabecera con session.token, que solo es un JWT cuando la respuesta de
+// sesión trajo el JWT firmado; si no, viaja el token de sesión opaco. Al cargar, la app lanza varias
+// lecturas en paralelo y alguna puede salir así: llega como anónima, no da error y devuelve una lista
+// VACÍA (clientes que «desaparecen»), o rechaza una escritura por seguridad.
+// Aquí, antes de enviar cada petición a la API de datos, se garantiza un JWT vigente:
+//   · si la cabecera ya lleva uno, pasa tal cual (y se recuerda en memoria);
+//   · si no, se usa el último JWT bueno de esta sesión;
+//   · si tampoco hay, UNA sola consulta compartida a la sesión (hasta ~2 s) lo obtiene para todas.
+// IMPORTANTE: esto debe instalarse ANTES de crear el cliente: el cliente guarda la función fetch que
+// existe en ese momento, y una guarda instalada después no vería ninguna petición.
 const DATA_API_PATH = '/rest/v1/';
 const jwtClaimsOf = (t) => {
   try {
@@ -89,34 +92,67 @@ const jwtClaimsOf = (t) => {
     return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
   } catch (e) { return null; }
 };
-const jwtUsable = (t) => { const c = jwtClaimsOf(t); return !!(c && c.role && c.exp && c.exp * 1000 > Date.now() + 10000); };
-window.__dataAuth = { ok: 0, replaced: 0, unfixed: 0, nosession: 0 };
+const jwtUsable = (t, margin = 10) => { const c = jwtClaimsOf(t); return !!(c && c.role && c.exp && c.exp * 1000 > Date.now() + margin * 1000); };
+window.__dataAuth = { ok: 0, cached: 0, replaced: 0, unfixed: 0, nosession: 0 };
+let lastGoodJwt = null;        // último JWT vigente visto o recuperado en esta sesión
+let jwtInFlight = null;        // consulta compartida a la sesión
+const clearJwtCache = () => { lastGoodJwt = null; jwtInFlight = null; };
 if (new URLSearchParams(window.location.search).get('demo') !== '1') {
   const nativeFetch = window.fetch.bind(window);
+  // Pide la sesión. La primera vez usa la del cliente (en memoria); si su token no es un JWT vigente
+  // —el cliente guarda en caché la primera respuesta de sesión y, si esa no trajo el JWT, queda el
+  // token opaco para siempre—, se fuerza una consulta nueva a la red (cabecera X-Force-Fetch del
+  // cliente de autenticación), que además reemplaza esa caché por la sesión buena.
+  const fetchSessionJwt = () => {
+    if (!jwtInFlight) {
+      jwtInFlight = (async () => {
+        let hadSession = false;
+        const ba = realNeon.auth.getBetterAuthInstance?.();
+        const betterAuth = typeof ba?.getSession === 'function' ? ba : null;
+        for (let i = 0; i < 6; i++) {
+          let token = null, session = null;
+          if (i === 0 || !betterAuth) {
+            const { data } = await realNeon.auth.getSession();
+            session = data?.session; token = session?.access_token;
+          } else {
+            const res = await betterAuth.getSession({ fetchOptions: { headers: { 'X-Force-Fetch': '1' } } });
+            session = res?.data?.session; token = session?.token;
+          }
+          if (i === 0 && !session) break;                       // sin sesión: no hay nada que esperar
+          if (session) hadSession = true;
+          if (jwtUsable(token)) { lastGoodJwt = token; return { jwt: token, hadSession: true }; }
+          await new Promise((r) => setTimeout(r, 250 * i));
+        }
+        return { jwt: null, hadSession };
+      })().finally(() => { jwtInFlight = null; });
+    }
+    return jwtInFlight;
+  };
   window.fetch = async function guardedFetch(input, init) {
     const url = typeof input === 'string' ? input : (input && input.url) || String(input || '');
     if (!url.includes(DATA_API_PATH)) return nativeFetch(input, init);
     try {
       const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
       const current = (headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
-      if (jwtUsable(current)) { window.__dataAuth.ok++; return nativeFetch(input, init); }
-      let fixed = null, hadSession = false;
-      for (let i = 0; i < 5 && !fixed; i++) {
-        const { data } = await realNeon.auth.getSession();
-        if (!data?.session) break;
-        hadSession = true;
-        if (jwtUsable(data.session.access_token)) fixed = data.session.access_token;
-        else await new Promise((r) => setTimeout(r, 150 * (i + 1)));
+      if (jwtUsable(current)) { lastGoodJwt = current; window.__dataAuth.ok++; return nativeFetch(input, init); }
+      let token = jwtUsable(lastGoodJwt, 30) ? lastGoodJwt : null;
+      if (token) window.__dataAuth.cached++;
+      else {
+        const { jwt, hadSession } = await fetchSessionJwt();
+        token = jwt;
+        if (!token) { window.__dataAuth[hadSession ? 'unfixed' : 'nosession']++; return nativeFetch(input, init); }
+        window.__dataAuth.replaced++;
       }
-      if (!fixed) { window.__dataAuth[hadSession ? 'unfixed' : 'nosession']++; return nativeFetch(input, init); }
-      headers.set('Authorization', 'Bearer ' + fixed);
-      window.__dataAuth.replaced++;
+      headers.set('Authorization', 'Bearer ' + token);
       return nativeFetch(input instanceof Request ? new Request(input, { headers }) : input, { ...(init || {}), headers });
     } catch (e) {
+      console.warn('Guarda de identidad:', e);
       return nativeFetch(input, init);   // la guarda nunca debe impedir la petición
     }
   };
 }
+
+const realNeon = window.NeonSupabase.createClient(NEON_URL);
 
 // ---- Modo demostración (?demo=1) ----
 // En la demostración TODAS las lecturas y escrituras de datos van a una base en memoria
@@ -690,6 +726,25 @@ async function checkDatabaseIdentity(userId) {
   return false;
 }
 
+// Lista leída de la base. Una lista VACÍA puede ser verdad (aún no hay clientes) o una lectura anónima:
+// una petición sin identidad no da error, devuelve «nada». Por eso, si llega vacía se comprueba quién
+// ve la base y, si no reconoce la sesión, se vuelve a leer en lugar de mostrar «nada» como si los
+// datos se hubieran borrado.
+let currentUserId = null;
+async function readList(label, run) {
+  let res = await run();
+  if (!res?.error && Array.isArray(res?.data) && res.data.length === 0 && currentUserId) {
+    let seen = null;
+    try { seen = (await neon.rpc('whoami'))?.data?.auth_uid || null; } catch (e) { /* ignorar */ }
+    if (seen !== currentUserId) {
+      reportDiag('empty_read_anon', { label, seen });
+      await new Promise((r) => setTimeout(r, 700));
+      res = await run();
+    }
+  }
+  return okData(res, label);
+}
+
 // Lectura de datos: si falla, se avisa (una vez cada 15 s) en lugar de dejar la lista vacía sin
 // explicación. Devuelve los datos, o null si hubo error (así no se pisa lo que ya se había cargado).
 let lastLoadFailToast = 0;
@@ -744,6 +799,7 @@ async function writeWithRetry(label, doWrite) {
 neon.auth.onAuthStateChange(async (event, session) => {
   if (session?.user) {
     const userId = session.user.id;
+    currentUserId = userId;
     // Antes del corte de abajo: la marca debe ponerse en cada evento con sesión, no solo
     // la primera vez que se montan los módulos.
     try { localStorage.setItem(VISITED_KEY, '1'); } catch (e) { /* ignorar */ }
@@ -842,6 +898,7 @@ neon.auth.onAuthStateChange(async (event, session) => {
     }, 400);
 
   } else {
+    clearJwtCache();
     // Sin sesión: se borra la marca para que la presentación vuelva a aparecer al
     // entrar por la raíz del sitio.
     try { localStorage.removeItem(VISITED_KEY); } catch (e) { /* ignorar */ }
@@ -968,7 +1025,7 @@ function creditState(cr) {
 }
 
 async function loadCustomers() {
-  const data = okData(await neon.from('customers').select('*').eq('business_id', currentBusinessId), 'los clientes');
+  const data = await readList('los clientes', () => neon.from('customers').select('*').eq('business_id', currentBusinessId));
   if (data) {
     customersSnapshot = data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
     loaded.customers = true;
@@ -1101,7 +1158,7 @@ async function initCustomersAndCredits() {
 }
 
 async function loadCredits() {
-  const data = okData(await neon.from('customer_credits').select('*').eq('business_id', currentBusinessId), 'las cuentas por cobrar');
+  const data = await readList('las cuentas por cobrar', () => neon.from('customer_credits').select('*').eq('business_id', currentBusinessId));
   if (data) {
     creditsSnapshot = data;
     loaded.credits = true;
@@ -1411,7 +1468,7 @@ function setPaymentMethod(value) {
 
 // Recarga el inventario (también lo usa el POS tras vender, para no ofrecer stock que ya no existe)
 async function loadProducts() {
-  const data = okData(await neon.from('products').select('*').eq('business_id', currentBusinessId), 'los productos');
+  const data = await readList('los productos', () => neon.from('products').select('*').eq('business_id', currentBusinessId));
   if (data) {
     inventorySnapshot = data.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
     loaded.products = true;
@@ -1699,7 +1756,7 @@ function initEmployeeManagement() {
 // Invitaciones emitidas y su estado (solo las ve el admin; la regla de la base lo exige)
 async function loadInvites() {
   if (!isAdmin()) return;
-  const data = okData(await neon.from('employee_invites').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(8), 'las invitaciones');
+  const data = await readList('las invitaciones', () => neon.from('employee_invites').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(8));
   const box = $('invites-list');
   const list = (data || []).slice(0, 8);
   box.innerHTML = list.length ? list.map(inv => {
@@ -1710,10 +1767,10 @@ async function loadInvites() {
 }
 
 async function loadEmployeesList() {
-  const data = okData(await neon.from('business_members')
+  const data = await readList('el equipo', () => neon.from('business_members')
     .select('*')
     .eq('business_id', currentBusinessId)
-    .eq('role', 'employee'), 'el equipo');
+    .eq('role', 'employee'));
 
   if (data) {
     employeesSnapshot = data;
@@ -2177,7 +2234,7 @@ function describeChanges(oldValues, newValues) {
 async function loadActivityLog() {
   const tbody = $('activity-log-table-body');
   tbody.innerHTML = skeletonRows(3);
-  const data = okData(await neon.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30), 'el registro de actividad');
+  const data = await readList('el registro de actividad', () => neon.from('activity_log').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(30));
   tbody.innerHTML = '';
   if (data && data.length) {
     data.forEach(log => {
@@ -2404,7 +2461,7 @@ async function createInvoiceForSale(sale, customerId) {
 }
 
 async function loadInvoicesList() {
-  const data = okData(await neon.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }), 'las facturas');
+  const data = await readList('las facturas', () => neon.from('invoices').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }));
   if (data) invoicesSnapshot = data;
   loaded.invoices = true;
   try { renderTopProducts(filterInvoicesByPeriod(invoicesSnapshot, activePeriod)); } catch (e) { console.error('renderTopProducts:', e); }
@@ -2721,8 +2778,8 @@ async function initInventory() {
     const tbody = $('inventory-history-table-body');
     tbody.innerHTML = skeletonRows(6);
     openModal('modal-inventory-history');
-    const data = okData(await neon.from('inventory_movements').select('*')
-      .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100), 'los movimientos de inventario');
+    const data = await readList('los movimientos de inventario', () => neon.from('inventory_movements').select('*')
+      .eq('business_id', currentBusinessId).order('created_at', { ascending: false }).limit(100));
     const typeBadge = {
       entrada: '<span class="badge badge-ok">Entrada</span>',
       salida: '<span class="badge badge-danger">Salida</span>',
@@ -2857,7 +2914,7 @@ function renderInventory() {
 }
 
 async function loadSales() {
-  const data = okData(await neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }), 'las ventas');
+  const data = await readList('las ventas', () => neon.from('sales').select('*').eq('business_id', currentBusinessId).order('created_at', { ascending: false }));
   if (data) {
     salesHistory = data;
     calculateFinancialDashboard();
