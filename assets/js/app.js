@@ -1054,6 +1054,7 @@ function validateCustomer(name, phone, ignoreId) {
 function friendlyDbError(err) {
   const m = err?.message || String(err || '');
   if (/customers_name_check/.test(m)) return 'revisa el nombre (1 a 150 caracteres) y el teléfono (hasta 40).';
+  if (/credits_amounts_check/.test(m)) return 'el abono supera el saldo pendiente del crédito.';
   if (/foreign key|violates foreign key/i.test(m)) return 'tiene registros asociados (créditos o facturas).';
   if (/row-level security/i.test(m)) return 'tu usuario no tiene permiso para esta acción (' + m + ').';
   return m;
@@ -1282,7 +1283,14 @@ function renderReceivables() {
   }
 
   tbody.querySelectorAll('.btn-rec-account').forEach(btn => {
-    btn.onclick = (e) => openCustomerAccountModal(e.currentTarget.dataset.customer, e.currentTarget.dataset.credit);
+    btn.onclick = async (e) => {
+      const { customer, credit } = e.currentTarget.dataset;
+      // Si el cliente aún no está en memoria (lectura fallida o lista desactualizada), se vuelve a leer
+      // en vez de no hacer nada: antes el botón «Abonar» parecía muerto en ese caso.
+      if (!customersSnapshot.some(c => c.id === customer)) await loadCustomers();
+      if (!customersSnapshot.some(c => c.id === customer)) return toast.err('No se encontró el cliente de este crédito. Actualiza la página e inténtalo de nuevo.');
+      openCustomerAccountModal(customer, credit);
+    };
   });
 }
 
@@ -1356,6 +1364,23 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
   if (preselectCreditId && openCredits.some(c => c.id === preselectCreditId)) creditSelect.value = preselectCreditId;
   $('payment-form').classList.toggle('hidden', openCredits.length === 0);
   $('payment-amount').value = '';
+  // Saldo máximo abonable del crédito elegido (incluye la mora del 10% si ya venció y aún no se cobró).
+  const maxPayable = (cr) => {
+    const pend = Math.max(0, pendingOf(cr));
+    const late = cr.due_date && !cr.late_fee_applied && isPastDueDate(cr.due_date);
+    return Math.round(pend * (late ? 1.1 : 1) * 100) / 100;
+  };
+  const syncPaymentMax = () => {
+    const cr = openCredits.find(c => c.id === creditSelect.value);
+    const input = $('payment-amount');
+    if (!cr) { input.removeAttribute('max'); return; }
+    const max = maxPayable(cr);
+    input.max = String(max);
+    input.placeholder = money(max).replace(/[^\d.,]/g, '') || '0.00';
+    input.title = 'Máximo: ' + money(max);
+  };
+  creditSelect.onchange = syncPaymentMax;
+  syncPaymentMax();
 
   // Pestaña inicial
   document.querySelectorAll('#account-tabs button').forEach(b => b.classList.toggle('is-active', b.dataset.accTab === 'credits'));
@@ -1375,6 +1400,10 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
     const amountToPay = parseFloat($('payment-amount').value);
 
     if (!creditId || !(amountToPay > 0)) return toast.err("Monto o crédito inválido.");
+    const chosen = openCredits.find(c => c.id === creditId);
+    if (chosen && amountToPay > maxPayable(chosen) + 0.005) {
+      return toast.err(`El abono no puede superar el saldo pendiente (${money(maxPayable(chosen))}).`);
+    }
 
     const submit = e.currentTarget.querySelector('button[type=submit]');
     await withBusy(submit, 'Procesando…', async () => {
@@ -1383,7 +1412,7 @@ function openCustomerAccountModal(customerId, preselectCreditId = null) {
         p_credit_id: creditId,
         p_amount: amountToPay
       });
-      if (payErr) return toast.err("Error al registrar abono: " + payErr.message);
+      if (payErr) return toast.err("No se pudo registrar el abono: " + friendlyDbError(payErr));
 
       const interestAmount = parseFloat(saleData.profit) - parseFloat(saleData.total);
       const isLate = interestAmount > 0;

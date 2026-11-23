@@ -468,6 +468,13 @@ begin
     v_new_total := v_credit.amount + v_interest;
   end if;
 
+  -- No se permite abonar más que el saldo (incluida la mora si aplica): evita violar
+  -- credits_amounts_check con un error ilegible.
+  if p_amount > (v_new_total - v_credit.amount_paid) + 0.005 then
+    raise exception 'El abono (%) supera el saldo pendiente (%).',
+      round(p_amount, 2), round(v_new_total - v_credit.amount_paid, 2);
+  end if;
+
   v_new_paid := v_credit.amount_paid + p_amount;
   v_new_status := case when v_new_paid >= v_new_total then 'pagado' else 'parcial' end;
 
