@@ -293,6 +293,7 @@ function showModuleSection(id) {
   if (id === 'sec-sales') renderPosCatalog();
   if (id === 'sec-receivables') renderReceivables();
   if (id === 'sec-reports') renderReports();
+  if (id === 'sec-dashboard' || id === 'sec-receivables' || id === 'sec-reports') reconcileData();
   if (id === 'sec-settings') enterSettings();
 }
 
@@ -745,6 +746,27 @@ async function readList(label, run) {
   return okData(res, label);
 }
 
+// La base a veces atiende una petición suelta sin reconocer la sesión y devuelve una lista vacía sin
+// error, aunque la comprobación de identidad de esa misma carga haya salido bien. Como no se puede
+// ver cuál petición fue, se contrastan las listas entre sí: si hay facturas pero ninguna venta, o hay
+// créditos/facturas de clientes pero ninguno cargado, esa lista llegó vacía por error y se vuelve a leer.
+const reconcileState = { runs: 0, since: 0 };
+async function reconcileData() {
+  if (!currentUserId || !currentBusinessId) return;
+  const now = Date.now();
+  if (now - reconcileState.since > 60000) { reconcileState.since = now; reconcileState.runs = 0; }
+  if (reconcileState.runs >= 4) return;   // sin bucles: como mucho 4 repasos por minuto
+  const redo = [];
+  if (invoicesSnapshot.length && !salesHistory.length) redo.push(['ventas', loadSales]);
+  if ((creditsSnapshot.length || invoicesSnapshot.some(i => i.customer_id)) && !customersSnapshot.length) redo.push(['clientes', loadCustomers]);
+  if (!redo.length) return;
+  reconcileState.runs++;
+  reportDiag('reconcile_reload', { lists: redo.map(r => r[0]), sales: salesHistory.length, invoices: invoicesSnapshot.length, customers: customersSnapshot.length, credits: creditsSnapshot.length });
+  await new Promise((r) => setTimeout(r, 600));
+  for (const [, load] of redo) { try { await load(); } catch (e) { console.error('Repaso de datos:', e); } }
+  if (typeof refreshCurrencyViews === 'function') refreshCurrencyViews();
+}
+
 // Lectura de datos: si falla, se avisa (una vez cada 15 s) en lugar de dejar la lista vacía sin
 // explicación. Devuelve los datos, o null si hubo error (así no se pisa lo que ya se había cargado).
 let lastLoadFailToast = 0;
@@ -978,6 +1000,7 @@ async function startSystemModules(onProgress) {
   modulesInitialized = true;
   let done = 0;
   await Promise.all(tasks.map(([label, promise]) => Promise.resolve(promise).then(() => { done++; onProgress?.(done, tasks.length, label); })));
+  reconcileData();
 }
 
 function applyLogoToHeader() {
