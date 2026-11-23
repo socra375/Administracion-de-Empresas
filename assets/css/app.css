@@ -193,7 +193,12 @@ body:not(.has-custom-bg) .topbar { background: var(--bg); }
 .pos-cart-head { display: flex; align-items: center; gap: 8px; }
 .pos-cart-head h3 { font-size: 17px; }
 .pos-cart-close { display: none; }
-.cart-lines { display: flex; flex-direction: column; min-height: 72px; }
+/* La venta actual es una columna con altura máxima. Ningún bloque puede encogerse por debajo de su
+   contenido (antes la lista, con min-height propio, se encogía y los artículos se montaban sobre el
+   total y los métodos de pago). Solo la lista cede espacio y, si no cabe, se desplaza por dentro. */
+.pos-cart > * { flex-shrink: 0; }
+.cart-lines { display: flex; flex-direction: column; min-height: 120px; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
+.cart-lines > * { flex-shrink: 0; }
 .cart-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 22px 8px; text-align: center; color: var(--text-3); font-size: 13.5px; }
 .cart-empty .i { width: 30px; height: 30px; stroke-width: 1.5; }
 .cart-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; padding: 11px 0; border-bottom: 1px solid var(--border); }
